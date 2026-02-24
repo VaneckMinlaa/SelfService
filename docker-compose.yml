@@ -15,7 +15,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-auth-data:/var/lib/postgresql/data
-      - ./auth-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./Auth-Service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -34,7 +34,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-account-data:/var/lib/postgresql/data
-      - ./account-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./Account-Service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -53,7 +53,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-transaction-data:/var/lib/postgresql/data
-      - ./transaction-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./Transaction-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -89,7 +89,7 @@ services:
   # ============================================
 
   auth-service:
-    build: ./auth-service
+    build: ./Auth-Service
     container_name: auth-service
     ports:
       - "8081:8081"
@@ -114,7 +114,7 @@ services:
       - banking-network
 
   account-service:
-    build: ./account-service
+    build: ./Account-Service
     container_name: account-service
     ports:
       - "8082:8082"
@@ -142,7 +142,7 @@ services:
       - banking-network
 
   transaction-service:
-    build: ./transaction-service
+    build: ./Transaction-Service
     container_name: transaction-service
     ports:
       - "8083:8083"
@@ -179,7 +179,7 @@ services:
       - banking-network
 
   notification-service:
-    build: ./notification-service
+    build: ./Notification-Service
     container_name: notification-service
     ports:
       - "8084:8084"
@@ -205,15 +205,15 @@ services:
   # ============================================
 
   nginx:
-    build: ./nginx
+    build: ./Nginx
     container_name: nginx-gateway
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./Nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./Nginx/ssl:/etc/nginx/ssl:ro
+      - ./Front-End/dist:/usr/share/nginx/html:ro
     depends_on:
       auth-service:
         condition: service_healthy
@@ -229,7 +229,7 @@ services:
   # ============================================
 
   frontend:
-    build: ./frontend
+    build: ./Front-End
     container_name: frontend
     depends_on:
       - nginx
