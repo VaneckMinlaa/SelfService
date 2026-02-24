@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: transaction-service
+
+  datasource:
+    url: jdbc:postgresql://postgres-transaction:5432/${TRANSACTION_DB_NAME:transaction_db}
+    username: ${DB_USERNAME:bankadmin}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+server:
+  port: 8083
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:your-secret-key-minimum-32-characters}
+
+auth:
+  service:
+    url: ${AUTH_SERVICE_URL:http://auth-service:8081}
+
+account:
+  service:
+    url: ${ACCOUNT_SERVICE_URL:http://account-service:8082}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.banking.transaction: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

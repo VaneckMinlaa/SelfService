@@ -1,0 +1,95 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+certs/
+ssl/
+nginx/ssl/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Build
+target/
+build/
+dist/
+node_modules/
+.next/
+out/
+*.jar
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+maven-wrapper.properties
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backups (local copies, keep scripts)
+*.sql.backup
+*.sql.bak
+backups/
+database/backup*.sql
+database/restore*.sql
+
+# Docker
+docker-compose.override.yml
+.dockerignore.local
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+.gradletasknamecache
+
+# Spring Boot
+.jpb/
+.classpath
+.factorypath
+.project
+.settings/
+*.class
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Microservices specific
+*/target/
+*/build/
+*/.gradle/
+*/*/target/
+*/*/build/
+
+# Database dumps for testing
+*.dump
+*.sql
+!database/*.sql
+!scripts/*.sql
+

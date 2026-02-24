@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: account-service
+
+  datasource:
+    url: jdbc:postgresql://postgres-account:5432/${ACCOUNT_DB_NAME:account_db}
+    username: ${DB_USERNAME:bankadmin}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+server:
+  port: 8082
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:your-secret-key-minimum-32-characters}
+    expiration: 3600000
+
+auth:
+  service:
+    url: ${AUTH_SERVICE_URL:http://auth-service:8081}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.banking.account: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always

@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://postgres-auth:5432/${AUTH_DB_NAME:auth_db}
+    username: ${DB_USERNAME:bankadmin}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: true
+
+server:
+  port: 8081
+  servlet:
+    context-path: /
+
+  error:
+    include-message: always
+    include-binding-errors: always
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:your-secret-key-minimum-32-characters}
+    expiration: ${JWT_EXPIRATION:3600000}  # 1 hour in milliseconds
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.banking.auth: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

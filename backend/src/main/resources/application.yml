@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: banking-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:banking}
+    username: ${DB_USERNAME:banking}
+    password: ${DB_PASSWORD:banking}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+  sql:
+    init:
+      mode: never
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:false}
+        same-site: lax
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+  # Optionnel : Prometheus metrics (actuator-metrics + micrometer-registry-prometheus)
+  # metrics.export.prometheus.enabled: true
+
+logging:
+  level:
+    com.selfservice: INFO
+    org.springframework.security: WARN
+  # En prod : LOGGING_JSON=true pour logs JSON (collecte ELK/Loki)
+  json: ${LOGGING_JSON:false}

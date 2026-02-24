@@ -1,0 +1,66 @@
+# Pipeline CI/CD : build images -> push registry -> déploiement
+# Variables GitLab : CI_REGISTRY_IMAGE, CI_REGISTRY_USER, CI_REGISTRY_PASSWORD (auto).
+# Pour deploy : DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, SSH_PRIVATE_KEY.
+
+variables:
+  DOCKER_DRIVER: overlay2
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+stages:
+  - build-push
+  - deploy
+
+build-push:backend:
+  stage: build-push
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/backend:$IMAGE_TAG -t $CI_REGISTRY_IMAGE/backend:latest ./backend
+    - docker push $CI_REGISTRY_IMAGE/backend:$IMAGE_TAG
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+
+build-push:frontend:
+  stage: build-push
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG -t $CI_REGISTRY_IMAGE/frontend:latest ./frontend
+    - docker push $CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+
+deploy:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - ssh $DEPLOY_USER@$DEPLOY_HOST "
+        cd ${DEPLOY_PATH:-.} && \
+        export REGISTRY=$CI_REGISTRY_IMAGE IMAGE_TAG=$IMAGE_TAG && \
+        docker compose -f docker-compose.prod.yml pull && \
+        docker compose -f docker-compose.prod.yml up -d
+      "
+  needs:
+    - build-push:backend
+    - build-push:frontend
+  when: manual
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $DEPLOY_HOST == null || $DEPLOY_HOST == ""
+      when: never
+    - when: manual

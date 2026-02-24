@@ -1,93 +1,456 @@
-# Self-Service
+# 🏦 Banking Portal - Microservices Architecture
 
+Application bancaire sécurisée avec **architecture microservices** complète : 5 services Spring Boot indépendants, authentification JWT, RabbitMQ pour la communication asynchrone, PostgreSQL par service, et API Gateway HTTPS.
 
+## 🎯 Objectif
 
-## Getting started
+Développer une plateforme bancaire démonontrant les meilleures pratiques en architecture microservices :
+- ✅ Séparation des responsabilités (Auth, Account, Transaction, Notification, Audit)
+- ✅ Base de données isolée par service (Data isolation)
+- ✅ Communication synchrone (REST) et asynchrone (RabbitMQ)
+- ✅ Authentification JWT stateless
+- ✅ HTTPS obligatoire
+- ✅ Secrets en variables d'environnement
+- ✅ Containerisation Docker complète
+- ✅ Logging et audit centralisé
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 📦 Stack Technologique
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### Services
+- **Auth Service** (Port 8081) - Authentification JWT, gestion utilisateurs, audit logging
+- **Account Service** (Port 8082) - Consultation comptes, soldes, ownership verification
+- **Transaction Service** (Port 8083) - Virements, historique, événements RabbitMQ
+- **Notification Service** (Port 8084) - Emails asynchrones via RabbitMQ
+- **Nginx Gateway** (Port 443/80) - Reverse proxy HTTPS, load balancing
 
-## Add your files
+### Infrastructure
+- **Frontend**: React 19 + Vite (servi par Nginx)
+- **Backend**: Spring Boot 3.2.5 (Java 17)
+- **Databases**: PostgreSQL 15 × 3 (auth_db, account_db, transaction_db)
+- **Message Broker**: RabbitMQ 3.12
+- **Proxy**: Nginx Alpine (HTTPS + routing)
+- **Container**: Docker + Docker Compose
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## 🚀 Quickstart
+
+### Prérequis
+```bash
+docker --version       # >= 24.0
+docker-compose --version  # >= 3.8
+java --version        # >= 17 (optionnel, pour dev)
+```
+
+### Installation (3 étapes)
+
+1. **Setup**
+```bash
+./scripts/setup.sh
+```
+
+2. **Build & Start**
+```bash
+./scripts/build-all.sh
+docker-compose up -d
+```
+
+3. **Health Check**
+```bash
+./scripts/health-check.sh
+```
+
+### Premiers tests
+
+**Demo users (password: `password123`)**:
+- `alice@example.com`
+- `bob@example.com`
+- `charlie@example.com`
+
+**Frontend**
+```bash
+open https://localhost
+# Ignore SSL warning (self-signed cert)
+```
+
+**Test API via curl**
+```bash
+# Login
+curl -X POST https://localhost/api/auth/login \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{"email":"alice@example.com","password":"password123"}'
+
+# Response: { "token": "eyJ...", "userId": 1, ... }
+
+# Use token to get accounts
+TOKEN="eyJ..."
+curl -X GET https://localhost/api/accounts \
+  -H "Authorization: Bearer $TOKEN" \
+  -k
+```
+
+**RabbitMQ Management UI**
+```
+http://localhost:15672
+Username: guest
+Password: guest
+```
+
+## 📂 Structure du Projet
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/Vaneck-sys/Self-Service.git
-git branch -M main
-git push -uf origin main
+Self-Service/
+├── 📂 auth-service/              Spring Boot - Auth & JWT
+│   ├── src/main/java/com/banking/auth/
+│   │   ├── AuthServiceApplication.java
+│   │   ├── controller/AuthController.java
+│   │   ├── service/AuthService.java
+│   │   ├── entity/User.java
+│   │   └── util/JwtProvider.java
+│   ├── pom.xml
+│   └── Dockerfile
+│
+├── 📂 account-service/           Spring Boot - Account Management
+│   ├── src/main/java/com/banking/account/
+│   │   ├── controller/AccountController.java
+│   │   ├── service/AccountService.java
+│   │   └── entity/Account.java
+│   └── pom.xml
+│
+├── 📂 transaction-service/       Spring Boot - Transfers + RabbitMQ
+│   ├── src/main/java/com/banking/transaction/
+│   │   ├── controller/TransactionController.java
+│   │   ├── service/TransactionService.java
+│   │   ├── producer/TransferEventProducer.java
+│   │   └── config/RabbitMQConfig.java
+│   └── pom.xml
+│
+├── 📂 notification-service/      Spring Boot - Email Notifications
+│   ├── src/main/java/com/banking/notification/
+│   │   ├── listener/TransferEventListener.java
+│   │   ├── service/EmailService.java
+│   │   └── config/RabbitMQConfig.java
+│   └── pom.xml
+│
+├── 📂 nginx/                     API Gateway + HTTPS
+│   ├── nginx.conf                (Reverse proxy, routing, SSL)
+│   ├── ssl/cert.pem             (Self-signed cert)
+│   ├── ssl/key.pem              (Private key)
+│   └── Dockerfile
+│
+├── 📂 frontend/                  React Web App
+│   ├── src/
+│   │   ├── pages/
+│   │   ├── components/
+│   │   ├── api/client.js         (JWT interceptor)
+│   │   └── store/authStore.js    (Auth context)
+│   └── package.json
+│
+├── 📂 database/                  SQL Schemas
+│   ├── auth-init.sql             (users, audit_logs)
+│   ├── account-init.sql          (accounts)
+│   ├── transaction-init.sql      (transactions)
+│   └── backups/                  (Automated backups)
+│
+├── 📂 scripts/                   Utility Scripts
+│   ├── setup.sh                  (Initialize project)
+│   ├── build-all.sh              (Build Docker images)
+│   ├── health-check.sh           (Verify all services)
+│   ├── backup-db.sh              (Backup databases)
+│   └── restore-db.sh             (Restore from backup)
+│
+├── 📂 docs/                      Documentation
+│   ├── ARCHITECTURE.md           (Detailed diagrams)
+│   ├── SECURITY.md               (Security checklist)
+│   ├── API.md                    (Endpoint documentation)
+│   └── TROUBLESHOOTING.md        (FAQ & solutions)
+│
+├── docker-compose.yml            (Orchestration)
+├── .env.example                  (Config template)
+├── .gitignore                    (Git exclusions)
+└── README.md                     (This file)
 ```
 
-## Integrate with your tools
+## 🔐 Sécurité
 
-* [Set up project integrations](https://gitlab.com/Vaneck-sys/Self-Service/-/settings/integrations)
+### JWT Authentication
+```
+Frontend → Nginx → {Auth/Account/Transaction Service}
+         (HTTPS, TLS 1.3)
 
-## Collaborate with your team
+1. Client POST /api/auth/login
+   ↓
+2. Auth Service généère JWT token
+   { userId: 1, email: "alice@example.com", exp: 3600 }
+   ↓
+3. Client stocke token en localStorage
+4. Toutes requêtes incluent: Authorization: Bearer {token}
+5. Services valident token contre Auth Service
+```
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Database Isolation
+- ✅ Chaque service a sa propre BD PostgreSQL
+- ✅ Pas d'accès direct entre BDs
+- ✅ Data sharing via API REST ou événements RabbitMQ
 
-## Test and Deploy
+### Audit Logging
+Toutes les actions sensibles sont loggées :
+- LOGIN / FAILED_LOGIN
+- LOGOUT
+- VIEW_ACCOUNTS
+- VIEW_TRANSACTIONS
+- TRANSFER
+- IP address, timestamp, success/failure
 
-Use the built-in continuous integration in GitLab.
+### HTTPS/TLS
+- Certificats auto-signés pour dev (Nginx)
+- HTTP → HTTPS redirect
+- TLS 1.3 + modern ciphers
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## 📝 Commandes Utiles
 
-***
+### Dev & Debugging
+```bash
+# Afficher tous les services
+docker-compose ps
 
-# Editing this README
+# Logs en temps réel
+docker-compose logs -f auth-service
+docker-compose logs -f rabbitmq
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+# Arrêter tous les services
+docker-compose down
 
-## Suggestions for a good README
+# Réinitialiser (supprimer volumes)
+docker-compose down -v
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+# Rebuild une image après changement
+docker-compose build auth-service
+docker-compose up -d auth-service
+```
 
-## Name
-Choose a self-explaining name for your project.
+### Database
+```bash
+# Accéder à psql (auth_db)
+docker exec -it postgres-auth psql -U bankadmin -d auth_db
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+# Voir les utilisateurs
+SELECT * FROM users;
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+# Voir audit logs
+SELECT * FROM audit_logs ORDER BY created_at DESC;
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+# Backup manuelle
+./scripts/backup-db.sh
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+# Restore depuis backup
+./scripts/restore-db.sh backup_auth_db_20240224_120000.sql
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### RabbitMQ
+```bash
+# Management UI
+open http://localhost:15672 (guest/guest)
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+# Lister les queues
+docker exec rabbitmq rabbitmqctl list_queues
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+# Lister les consumers
+docker exec rabbitmq rabbitmqctl list_consumers
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## 🧪 Tests
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### Test Login Flow
+```bash
+# 1. Login
+RESPONSE=$(curl -s -X POST https://localhost/api/auth/login \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{"email":"alice@example.com","password":"password123"}')
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+TOKEN=$(echo $RESPONSE | jq -r '.token')
+echo "Token: $TOKEN"
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+# 2. Get accounts
+curl -s -X GET https://localhost/api/accounts \
+  -H "Authorization: Bearer $TOKEN" \
+  -k | jq .
 
-## License
-For open source projects, say how it is licensed.
+# 3. Get specific account
+curl -s -X GET https://localhost/api/accounts/1 \
+  -H "Authorization: Bearer $TOKEN" \
+  -k | jq .
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+# 4. Transfer money
+curl -s -X POST https://localhost/api/transactions/transfer \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{
+    "fromAccountId": 1,
+    "toAccountId": 2,
+    "amount": 100.00,
+    "description": "Payment for services"
+  }' | jq .
+```
+
+## 📊 Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────┐
+│           INTERNET (HTTPS/TLS 1.3)                  │
+└──────────────────────┬────────────────────────────┘
+                       │
+         ┌─────────────▼──────────────┐
+         │   NGINX API Gateway        │
+         │   (Port 443/80)            │
+         │   ▪ Reverse proxy          │
+         │   ▪ Static files (React)   │
+         │   ▪ Rate limiting          │
+         │   ▪ CORS headers           │
+         └──────────────┬──────────────┘
+                        │
+          ┌─────────────┼─────────────┐
+          │             │             │
+    ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
+    │Auth       │ │Account    │ │Transaction│
+    │Service    │ │Service    │ │Service    │
+    │(8081)     │ │(8082)     │ │(8083)     │
+    └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+          │             │             │
+    ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
+    │  Auth DB  │ │ Account DB │ │ Trans. DB  │
+    │PostgreSQL │ │PostgreSQL  │ │PostgreSQL  │
+    └───────────┘ └───────────┘ └───────────┘
+          ▲
+          └────────┬────────────┐
+                   │            │
+            ┌──────▼──────┐  ┌──▼────────────┐
+            │  RabbitMQ   │  │Notification   │
+            │(5672, 15672)│  │Service (8084) │
+            └─────────────┘  │▪ Email        │
+                             │▪ SMS (future) │
+                             └────────────────┘
+```
+
+## 🔄 Flux Communication
+
+### Synchrone (REST/HTTP)
+```
+Frontend
+  ↓ HTTPS
+API Gateway (Nginx)
+  ↓ Route /api/accounts/*
+Account Service
+  ↓ HTTP (Docker network)
+Auth Service (validate token)
+  ↓
+Account DB (PostgreSQL)
+```
+
+### Asynchrone (RabbitMQ)
+```
+Transaction Service
+  ↓ Publie événement
+RabbitMQ (transfer-completed-queue)
+  ↓
+Notification Service (consume async)
+  ↓ Envoie email
+Client ← Notification
+```
+
+## 📚 Documentation Complète
+
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Schémas détaillés, flux de données
+- **[SECURITY.md](docs/SECURITY.md)** - Checklist sécurité, JWT, HTTPS, audit
+- **[API.md](docs/API.md)** - Documentation endpoints (OpenAPI/Swagger)
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment, Kubernetes
+- **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - FAQ, problèmes courants
+
+## 🛠️ Développement
+
+### Architecture des Services
+
+Chaque service suit le pattern **Layered Architecture** :
+```
+Controller (REST endpoints)
+    ↓
+Service (Business logic)
+    ↓
+Repository (Data access)
+    ↓
+Entity (JPA models)
+    ↓
+Database
+```
+
+### Dépendances entre Services
+
+```
+Frontend
+  → Auth Service (validate token)
+  → Account Service (requires Auth)
+  → Transaction Service (requires Auth)
+  → Notification Service (async, via RabbitMQ)
+
+Tous → PostgreSQL (isolé par service)
+```
+
+### Ajouter une Nouvelle Feature
+
+1. Identifier quel service est concerné
+2. Ajouter endpoint dans Controller
+3. Implémenter logique dans Service
+4. Ajouter modèle dans Entity
+5. Migrer BD si nécessaire (schema.sql)
+6. Tester via curl ou Postman
+7. Commiter et pusher
+
+## 📋 Checklist Déploiement
+
+- [ ] Générer nouveau JWT_SECRET
+- [ ] Configurer SMTP pour notifications
+- [ ] Générer certificats SSL (production)
+- [ ] Mettre à jour .env avec secrets production
+- [ ] Tester avec docker-compose up
+- [ ] Lancer health-check.sh
+- [ ] Vérifier logs (docker-compose logs)
+- [ ] Tester endpoints (login, accounts, transfer)
+- [ ] Vérifier notifications RabbitMQ
+- [ ] Backup base de données
+- [ ] Documenter variables d'env
+- [ ] Commitr et pusher changements
+
+## 🤝 Contribution
+
+1. Créer une branche `feature/xxx`
+2. Faire les changements
+3. Tester localement
+4. Commiter avec messages clairs
+5. Pusher et créer Pull Request
+6. Request review
+
+## 📄 Licence
+
+Projet académique - Free to use for educational purposes.
+
+## 👨‍💼 Contact & Support
+
+Pour questions ou problèmes :
+1. Vérifier [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+2. Consulter [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+3. Lancer `./scripts/health-check.sh`
+4. Vérifier logs: `docker-compose logs`
+
+---
+
+**État du Projet**: ✅ MVP Complet
+- ✅ 5 microservices fonctionnels
+- ✅ Docker Compose orchestration
+- ✅ JWT authentication
+- ✅ HTTPS/TLS support
+- ✅ RabbitMQ messaging
+- ✅ Database isolation
+- ✅ Audit logging
+- ⏳ Kubernetes deployment (WIP)
+- ⏳ Distributed tracing/Jaeger (WIP)

@@ -1,0 +1,14 @@
+target/
+build/
+.gradle/
+.classpath
+.project
+.settings/
+*.class
+*.classpath
+*.log
+.DS_Store
+*.iml
+.idea/
+.vscode/
+Maven.log
