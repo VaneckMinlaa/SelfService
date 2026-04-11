@@ -15,7 +15,6 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-auth-data:/var/lib/postgresql/data
-      - ./Auth-Service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -34,7 +33,6 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-account-data:/var/lib/postgresql/data
-      - ./Account-Service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -53,7 +51,6 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres-transaction-data:/var/lib/postgresql/data
-      - ./Transaction-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
       interval: 10s
@@ -97,7 +94,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth:5432/${AUTH_DB_NAME:-auth_db}
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-bankadmin}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       SECURITY_JWT_SECRET: ${JWT_SECRET:-your-secret-key-minimum-32-characters-here}
       SECURITY_JWT_EXPIRATION: 3600000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -105,7 +102,7 @@ services:
       postgres-auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/api/auth/health"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/api/auth/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -122,7 +119,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-account:5432/${ACCOUNT_DB_NAME:-account_db}
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-bankadmin}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       SECURITY_JWT_SECRET: ${JWT_SECRET:-your-secret-key-minimum-32-characters-here}
       SECURITY_JWT_EXPIRATION: 3600000
       AUTH_SERVICE_URL: http://auth-service:8081
@@ -133,7 +130,7 @@ services:
       auth-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/api/accounts/health"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8082/api/accounts/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -150,7 +147,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-transaction:5432/${TRANSACTION_DB_NAME:-transaction_db}
       SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-bankadmin}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       SPRING_RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       SPRING_RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -170,7 +167,7 @@ services:
       account-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8083/api/transactions/health"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/api/transactions/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
