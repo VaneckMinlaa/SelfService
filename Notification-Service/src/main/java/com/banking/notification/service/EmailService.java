@@ -54,7 +54,7 @@ public class EmailService {
         return String.format(
                 "Dear %s,\n\n" +
                         "A transfer has been completed on your account.\n\n" +
-                        "Amount: %s EUR\n" +
+                        "Amount: %s FCFA\n" +
                         "Description: %s\n" +
                         "Date: %s\n\n" +
                         "If you did not authorize this transfer, please contact our support team immediately.\n\n" +

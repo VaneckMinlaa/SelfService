@@ -1,0 +1,116 @@
+@startuml System_Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam component {
+    BackgroundColor<<service>> #E1F5FF
+    BackgroundColor<<database>> #FFF3E0
+    BackgroundColor<<queue>> #F3E5F5
+    BackgroundColor<<monitoring>> #E8F5E9
+    BackgroundColor<<infrastructure>> #F5F5F5
+    BorderColor #424242
+}
+
+package "Client Tier" {
+    actor "End User" as user
+    component "Web Browser" as browser
+}
+
+package "API Gateway & Security" {
+    component "NGINX Reverse Proxy\n(Port 80/443)" as nginx <<infrastructure>>
+    component "ModSecurity WAF" as waf <<infrastructure>>
+    component "TLS 1.2+\nLet's Encrypt" as tls <<infrastructure>>
+}
+
+package "Microservices" {
+    component "Auth Service\n(Port 8081)" as auth <<service>>
+    component "Account Service\n(Port 8082)" as account <<service>>
+    component "Transaction Service\n(Port 8083)" as transaction <<service>>
+    component "Notification Service\n(Port 8084)" as notification <<service>>
+    component "Frontend\nReact + Vite" as frontend <<service>>
+}
+
+package "Data Layer" {
+    database "PostgreSQL\nauth_db" as db_auth <<database>>
+    database "PostgreSQL\naccount_db" as db_account <<database>>
+    database "PostgreSQL\ntransaction_db" as db_transaction <<database>>
+}
+
+package "Message Queue" {
+    component "RabbitMQ\n(Port 5672)" as rabbitmq <<queue>>
+}
+
+package "Monitoring & Observability" {
+    component "Prometheus\n(Metrics)" as prometheus <<monitoring>>
+    component "Grafana\n(Dashboards)" as grafana <<monitoring>>
+    component "Health Checks" as health <<monitoring>>
+}
+
+package "Infrastructure" {
+    component "Docker Compose\nOrchestration" as docker <<infrastructure>>
+    component "Backup & Recovery\nSystem" as backup <<infrastructure>>
+    component "Cron Scheduler\n(Daily 2 AM)" as cron <<infrastructure>>
+}
+
+package "CI/CD Pipeline" {
+    component "GitLab\nRepository" as gitlab <<infrastructure>>
+    component "Build Pipeline\n(Lint/Build/Push)" as pipeline <<infrastructure>>
+    component "Deploy Pipeline\n(Staging/Prod)" as deploy <<infrastructure>>
+}
+
+user --> browser: HTTP/HTTPS Requests
+browser --> nginx: Requests
+nginx --> waf: Security Check
+waf --> tls: Encrypted Channel
+tls --> frontend: Static Content\n(SPA)
+tls --> nginx: Forward
+nginx --> auth: /api/auth/*\n(Rate Limited 5/s)
+nginx --> account: /api/accounts/*\n(Rate Limited 100/s)
+nginx --> transaction: /api/transactions/*\n(Rate Limited 100/s)
+
+auth --> db_auth: User Credentials\n& Audit Logs
+account --> db_account: Account Data\n& Balance
+transaction --> db_transaction: Transfers\n& Ledger
+transaction --> rabbitmq: TransferEvent\nPublished
+notification --> rabbitmq: Events\nConsumed
+notification --> auth: Send Email\nNotification
+
+auth --> health: Health Check
+account --> health: Health Check
+transaction --> health: Health Check
+notification --> health: Health Check
+
+prometheus --> auth: Scrape Metrics\n(30s interval)
+prometheus --> account: Scrape Metrics
+prometheus --> transaction: Scrape Metrics
+prometheus --> notification: Scrape Metrics
+prometheus --> rabbitmq: Scrape Metrics
+prometheus --> db_auth: Scrape Metrics\n(exporter)
+prometheus --> db_account: Scrape Metrics
+prometheus --> db_transaction: Scrape Metrics
+
+grafana --> prometheus: Query Metrics\n(Visualization)
+grafana --> health: Display Status
+
+docker --> auth: Orchestrate
+docker --> account: Orchestrate
+docker --> transaction: Orchestrate
+docker --> notification: Orchestrate
+docker --> frontend: Orchestrate
+docker --> db_auth: Manage Volume
+docker --> db_account: Manage Volume
+docker --> db_transaction: Manage Volume
+docker --> rabbitmq: Orchestrate
+docker --> prometheus: Orchestrate
+docker --> grafana: Orchestrate
+
+cron --> backup: Trigger Daily\nBackup (2 AM)
+backup --> db_auth: Dump auth_db
+backup --> db_account: Dump account_db
+backup --> db_transaction: Dump transaction_db
+
+gitlab --> pipeline: Push Triggers
+pipeline --> docker: Build Images
+docker --> deploy: Update Images
+deploy --> nginx: Rolling Update
+
+@enduml

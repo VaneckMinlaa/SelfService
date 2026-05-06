@@ -1,0 +1,308 @@
+@startuml Class_Diagram
+!theme plain
+skinparam classBackgroundColor #E1F5FF
+skinparam classBorderColor #01579B
+skinparam classArrowColor #01579B
+
+' ============== ENTITIES ==============
+
+class User {
+    - user_id: Long
+    - username: String
+    - email: String
+    - password_hash: String
+    - roles: Set<String>
+    - is_active: boolean
+    - created_at: DateTime
+    - updated_at: DateTime
+    --
+    + User(username, email)
+    + authenticate(password): boolean
+    + hasRole(role): boolean
+    + updateProfile(email): void
+    + setPassword(password): void
+}
+
+class AuditLog {
+    - audit_id: Long
+    - user_id: Long (FK)
+    - action: String
+    - resource_type: String
+    - resource_id: Long
+    - details: String
+    - ip_address: String
+    - timestamp: DateTime
+    --
+    + AuditLog(action, resource)
+    + logAction(): void
+    + getDetails(): String
+}
+
+class Account {
+    - account_id: Long
+    - user_id: Long (FK)
+    - account_number: String
+    - account_type: AccountType
+    - balance: BigDecimal
+    - currency: String
+    - status: AccountStatus
+    - created_at: DateTime
+    - updated_at: DateTime
+    --
+    + Account(user, accountType)
+    + getBalance(): BigDecimal
+    + canTransfer(amount): boolean
+    + debit(amount): void
+    + credit(amount): void
+    + freeze(): void
+    + unfreeze(): void
+}
+
+class Transaction {
+    - transaction_id: Long
+    - source_account_id: Long (FK)
+    - destination_account_id: Long (FK)
+    - amount: BigDecimal
+    - currency: String
+    - status: TransactionStatus
+    - description: String
+    - reference_id: String
+    - timestamp: DateTime
+    - completed_at: DateTime
+    --
+    + Transaction(source, destination, amount)
+    + execute(): boolean
+    + validate(): boolean
+    + rollback(): void
+    + getStatus(): TransactionStatus
+}
+
+class TransactionEvent {
+    - event_id: Long
+    - transaction_id: Long
+    - event_type: String
+    - source_account: Account
+    - destination_account: Account
+    - amount: BigDecimal
+    - timestamp: DateTime
+    - is_processed: boolean
+    --
+    + TransactionEvent(transaction)
+    + toJson(): String
+    + publish(): void
+}
+
+' ============== SERVICES ==============
+
+class AuthService {
+    - userRepository: UserRepository
+    - auditLogRepository: AuditLogRepository
+    - jwtTokenProvider: JwtTokenProvider
+    --
+    + login(username, password): JwtToken
+    + register(username, email, password): User
+    + validateToken(token): boolean
+    + refreshToken(token): JwtToken
+    + logout(token): void
+    + changePassword(userId, oldPass, newPass): void
+}
+
+class AccountService {
+    - accountRepository: AccountRepository
+    - userRepository: UserRepository
+    --
+    + getAccountsByUser(userId): List<Account>
+    + getAccountBalance(accountId): BigDecimal
+    + createAccount(userId, accountType): Account
+    + freezeAccount(accountId): void
+    + unfreezeAccount(accountId): void
+    + getTransactionHistory(accountId): List<Transaction>
+}
+
+class TransactionService {
+    - transactionRepository: TransactionRepository
+    - accountService: AccountService
+    - eventPublisher: EventPublisher
+    --
+    + transfer(fromId, toId, amount): Transaction
+    + validateTransfer(from, to, amount): boolean
+    + executeTransfer(transaction): boolean
+    + rollbackTransfer(transaction): void
+    + getTransactionHistory(accountId): List<Transaction>
+}
+
+class NotificationService {
+    - emailService: EmailService
+    - eventListener: EventListener
+    - notificationRepository: NotificationRepository
+    --
+    + onTransferEvent(event): void
+    + sendEmailNotification(user, subject, body): void
+    + sendSmsNotification(phone, message): void
+    + getNotificationHistory(userId): List<Notification>
+}
+
+' ============== REPOSITORIES ==============
+
+interface UserRepository {
+    + findById(id): User
+    + findByUsername(username): User
+    + save(user): User
+    + delete(id): void
+    + findAll(): List<User>
+}
+
+interface AccountRepository {
+    + findById(id): Account
+    + findByUser(userId): List<Account>
+    + save(account): Account
+    + delete(id): void
+}
+
+interface TransactionRepository {
+    + findById(id): Transaction
+    + findByAccount(accountId): List<Transaction>
+    + save(transaction): Transaction
+    + delete(id): void
+}
+
+interface AuditLogRepository {
+    + findById(id): AuditLog
+    + findByUser(userId): List<AuditLog>
+    + save(auditLog): AuditLog
+}
+
+' ============== ENUMS ==============
+
+enum AccountType {
+    CHECKING
+    SAVINGS
+    INVESTMENT
+    BUSINESS
+}
+
+enum AccountStatus {
+    ACTIVE
+    FROZEN
+    CLOSED
+    PENDING
+}
+
+enum TransactionStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+    ROLLBACK
+}
+
+enum UserRole {
+    ADMIN
+    USER
+    OPERATOR
+    AUDITOR
+}
+
+' ============== DTO ==============
+
+class LoginRequest {
+    - username: String
+    - password: String
+    --
+    + getUsername(): String
+    + getPassword(): String
+}
+
+class LoginResponse {
+    - token: String
+    - expiresIn: Long
+    - user: UserDTO
+    --
+    + getToken(): String
+    + getUser(): UserDTO
+}
+
+class TransferRequest {
+    - from_account_id: Long
+    - to_account_id: Long
+    - amount: BigDecimal
+    - description: String
+    --
+    + validate(): boolean
+}
+
+class TransferResponse {
+    - transaction_id: Long
+    - status: String
+    - reference_id: String
+    --
+    + getTransactionId(): Long
+}
+
+' ============== SECURITY ==============
+
+class JwtTokenProvider {
+    - secret: String
+    - expirationTime: Long
+    --
+    + generateToken(userId, roles): String
+    + validateToken(token): boolean
+    + getUserIdFromToken(token): Long
+    + getExpirationTimeFromToken(token): Long
+}
+
+class PasswordEncoder {
+    --
+    + encode(password): String
+    + matches(rawPassword, encodedPassword): boolean
+}
+
+class SecurityContext {
+    - currentUser: User
+    - currentRoles: Set<String>
+    --
+    + getCurrentUser(): User
+    + hasRole(role): boolean
+    + isAuthenticated(): boolean
+}
+
+' ============== RELATIONSHIPS ==============
+
+User "1" --> "*" Account : owns
+User "1" --> "*" AuditLog : generates
+User "1" --> "*" TransactionEvent : initiates
+
+Account "1" --> "*" Transaction : source
+Account "1" --> "*" Transaction : destination
+
+Transaction "1" --> "1" TransactionEvent : triggers
+TransactionEvent "1" --> "*" NotificationService : consumed by
+
+AuthService --> UserRepository : uses
+AuthService --> JwtTokenProvider : uses
+AuthService --> PasswordEncoder : uses
+
+AccountService --> AccountRepository : uses
+AccountService --> UserRepository : uses
+
+TransactionService --> TransactionRepository : uses
+TransactionService --> AccountService : uses
+TransactionService --> EventPublisher : publishes
+
+NotificationService --> EventListener : listens
+NotificationService --> TransactionEvent : consumes
+
+LoginRequest -.-> AuthService : sent to
+LoginResponse -.-> LoginRequest : response to
+
+TransferRequest -.-> TransactionService : sent to
+TransferResponse -.-> TransferRequest : response to
+
+Account --> AccountType : has
+Account --> AccountStatus : has
+Transaction --> TransactionStatus : has
+
+JwtTokenProvider --> SecurityContext : populates
+User --> UserRole : has
+
+@enduml

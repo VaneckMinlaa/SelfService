@@ -1,0 +1,55 @@
+
+@startuml Database_Schema
+!theme plain
+entity "Users" {
+    * user_id : INTEGER
+    --
+    username : VARCHAR(100)
+    email : VARCHAR(255)
+    password_hash : VARCHAR(255)
+    roles : VARCHAR(50)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+entity "AuditLogs" {
+    * audit_id : INTEGER
+    --
+    user_id : INTEGER (FK)
+    action : VARCHAR(100)
+    resource : VARCHAR(100)
+    details : TEXT
+    timestamp : TIMESTAMP
+}
+
+entity "Accounts" {
+    * account_id : INTEGER
+    --
+    user_id : INTEGER (FK)
+    account_number : VARCHAR(20)
+    account_type : VARCHAR(50)
+    balance : DECIMAL(15,2)
+    currency : VARCHAR(3)
+    status : VARCHAR(20)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+entity "Transactions" {
+    * transaction_id : INTEGER
+    --
+    source_account_id : INTEGER (FK)
+    destination_account_id : INTEGER (FK)
+    amount : DECIMAL(15,2)
+    currency : VARCHAR(3)
+    status : VARCHAR(20)
+    description : TEXT
+    timestamp : TIMESTAMP
+}
+
+Users ||--o{ AuditLogs : "generates"
+Users ||--o{ Accounts : "owns"
+Accounts ||--o{ Transactions : "source"
+Accounts ||--o{ Transactions : "destination"
+
+@enduml

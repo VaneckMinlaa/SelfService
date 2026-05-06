@@ -1,0 +1,34 @@
+@startuml Transfer_Transaction_Sequence
+!theme plain
+participant "Web Client" as client
+participant "API Gateway" as gateway
+participant "Transaction Service" as transaction
+database "transaction_db" as txdb
+database "account_db" as accdb
+participant "Account Service" as account
+participant "RabbitMQ" as rabbitmq
+participant "Notification Service" as notification
+
+autonumber
+client --> gateway: POST /api/transactions/transfer\n{from, to, amount}
+gateway --> transaction: Forward Request\n+ JWT Validation
+transaction --> transaction: Validate Request\n(Schema, Amount > 0)
+transaction --> accdb: Lock Source Account\n(Row-Level Lock)
+transaction --> accdb: Query Source Balance
+accdb --> transaction: Return Balance
+transaction --> transaction: Check Balance\n>= Amount
+transaction --> accdb: Debit Source\nAccount
+transaction --> accdb: Lock Target Account\n(Row-Level Lock)
+transaction --> accdb: Credit Target\nAccount
+transaction --> txdb: Create Transaction\nRecord (PENDING)
+transaction --> txdb: Update Status\nto COMPLETED
+transaction --> rabbitmq: Publish TransferEvent\n{from, to, amount, timestamp}
+rabbitmq --> transaction: Event Acknowledged
+transaction --> gateway: Return 201 Created\n{transaction_id, status}
+gateway --> client: 201 Created\n{transaction_id}
+rabbitmq --> notification: Consume TransferEvent\n(Async)
+notification --> notification: Generate Email\nMessage
+notification --> notification: Send Email\nNotification
+notification --> transaction: Log Notification\nSent
+
+@enduml

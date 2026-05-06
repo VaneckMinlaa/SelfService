@@ -1,0 +1,21 @@
+@startuml Monitoring_Architecture
+!theme plain
+
+package "Service Metrics Collection" {
+    component "Auth Service\n/actuator/prometheus" as auth_metrics
+    component "Account Service\n/actuator/prometheus" as account_metrics
+    component "Transaction Service\n/actuator/prometheus" as transaction_metrics
+    component "Notification Service\n/actuator/prometheus" as notification_metrics
+    component "RabbitMQ Metrics\nPort: 15672" as rabbitmq_metrics
+    component "PostgreSQL Exporter\nPort: 9187" as pg_exporter
+}
+
+package "Metrics Aggregation" {
+    component "Prometheus\n(30s Scrape Interval)" as prometheus
+    component "Time-Series Database\n(30-Day Retention)" as tsdb
+}
+
+package "Visualization & Alerting" {
+    component "Grafana\nDashboards" as grafana
+    component "Alert Rules\n(Threshold-Based)" as alerts
+}

@@ -17,4 +17,9 @@ public class NotificationServiceApplication {
     public MessageConverter jackson2MessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
+
+    @Bean
+    public org.springframework.web.client.RestTemplate restTemplate() {
+        return new org.springframework.web.client.RestTemplate();
+    }
 }

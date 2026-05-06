@@ -60,4 +60,30 @@ public class AccountService {
                 .createdAt(account.getCreatedAt())
                 .build();
     }
+
+    @org.springframework.transaction.annotation.Transactional
+    public void debit(Long accountId, java.math.BigDecimal amount, Long userId) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        if (!account.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
+        }
+
+        if (account.getBalance().compareTo(amount) < 0) {
+            throw new RuntimeException("Insufficient balance");
+        }
+
+        account.setBalance(account.getBalance().subtract(amount));
+        accountRepository.save(account);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public void credit(Long accountId, java.math.BigDecimal amount) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        account.setBalance(account.getBalance().add(amount));
+        accountRepository.save(account);
+    }
 }

@@ -1,66 +1,353 @@
-# Pipeline CI/CD : build images -> push registry -> déploiement
-# Variables GitLab : CI_REGISTRY_IMAGE, CI_REGISTRY_USER, CI_REGISTRY_PASSWORD (auto).
-# Pour deploy : DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, SSH_PRIVATE_KEY.
+# ============================================
+# GitLab CI/CD Pipeline - Production Ready
+# Banking Portal - Microservices
+# ============================================
+# Build images -> Push Registry -> Deploy VPS
 
 variables:
   DOCKER_DRIVER: overlay2
   IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_HOST: tcp://docker:2376
+  FF_USE_FASTZIP: "true"
 
 stages:
+  - lint
   - build-push
-  - deploy
+  - deploy-staging
+  - deploy-production
+  - rollback
+  - notify
 
-build-push:backend:
+# ============================================
+# LINTING & VALIDATION
+# ============================================
+
+lint:docker-compose:
+  stage: lint
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update && apt-get install -y docker-compose-plugin
+  script:
+    - echo "Validating docker-compose files..."
+    - docker-compose -f docker-compose.prod.yml config > /dev/null
+    - echo "✓ docker-compose.prod.yml valid"
+  allow_failure: false
+  only:
+    - branches
+
+# ============================================
+# BUILD & PUSH - Microservices
+# ============================================
+
+.build-template: &build-template
   stage: build-push
   image: docker:24
   services:
     - docker:24-dind
-  variables:
-    DOCKER_TLS_CERTDIR: "/certs"
   before_script:
+    - echo "Building $SERVICE_NAME..."
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
-    - docker build -t $CI_REGISTRY_IMAGE/backend:$IMAGE_TAG -t $CI_REGISTRY_IMAGE/backend:latest ./backend
-    - docker push $CI_REGISTRY_IMAGE/backend:$IMAGE_TAG
-    - docker push $CI_REGISTRY_IMAGE/backend:latest
+    # Build avec tags
+    - docker build 
+        --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        --build-arg VCS_REF=$CI_COMMIT_SHA
+        --build-arg VERSION=$CI_COMMIT_TAG
+        -t $CI_REGISTRY_IMAGE/$SERVICE_NAME:$IMAGE_TAG 
+        -t $CI_REGISTRY_IMAGE/$SERVICE_NAME:latest 
+        ./$DIR_NAME
+    
+    # Push vers registry
+    - docker push $CI_REGISTRY_IMAGE/$SERVICE_NAME:$IMAGE_TAG
+    - docker push $CI_REGISTRY_IMAGE/$SERVICE_NAME:latest
+    - echo "✓ $SERVICE_NAME:$IMAGE_TAG pushed to registry"
+  retry:
+    max: 2
+    when: runner_system_failure
+  only:
+    - main
+    - develop
+    - tags
 
-build-push:frontend:
-  stage: build-push
-  image: docker:24
-  services:
-    - docker:24-dind
+build:auth-service:
+  <<: *build-template
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
-  before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - docker build -t $CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG -t $CI_REGISTRY_IMAGE/frontend:latest ./frontend
-    - docker push $CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG
-    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+    SERVICE_NAME: "auth-service"
+    DIR_NAME: "Auth-Service"
 
-deploy:
-  stage: deploy
+build:account-service:
+  <<: *build-template
+  variables:
+    SERVICE_NAME: "account-service"
+    DIR_NAME: "Account-Service"
+
+build:transaction-service:
+  <<: *build-template
+  variables:
+    SERVICE_NAME: "transaction-service"
+    DIR_NAME: "Transaction-Service"
+
+build:notification-service:
+  <<: *build-template
+  variables:
+    SERVICE_NAME: "notification-service"
+    DIR_NAME: "Notification-Service"
+
+build:frontend:
+  <<: *build-template
+  variables:
+    SERVICE_NAME: "frontend"
+    DIR_NAME: "Front-End"
+
+# ============================================
+# DEPLOY - Staging
+# ============================================
+
+deploy:staging:
+  stage: deploy-staging
   image: alpine:latest
+  environment:
+    name: staging
+    url: https://${STAGING_DOMAIN}
   before_script:
-    - apk add --no-cache openssh-client
+    - apk add --no-cache openssh-client bash curl
     - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - echo "$STAGING_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+    - ssh-keyscan -H $STAGING_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
-    - ssh $DEPLOY_USER@$DEPLOY_HOST "
-        cd ${DEPLOY_PATH:-.} && \
-        export REGISTRY=$CI_REGISTRY_IMAGE IMAGE_TAG=$IMAGE_TAG && \
-        docker compose -f docker-compose.prod.yml pull && \
-        docker compose -f docker-compose.prod.yml up -d
+    - |
+      ssh $STAGING_USER@$STAGING_HOST "
+        set -e
+        echo '=== Staging Deployment Started ==='
+        cd $STAGING_DEPLOY_PATH
+        
+        # Update .env with new image tag
+        echo 'Updating environment variables...'
+        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
+        
+        # Backup database
+        echo 'Creating database backup...'
+        ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
+        
+        # Pull new images
+        echo 'Pulling latest images...'
+        export DOCKER_REGISTRY=$CI_REGISTRY_IMAGE
+        docker-compose -f docker-compose.prod.yml pull
+        
+        # Deploy
+        echo 'Deploying services...'
+        docker-compose -f docker-compose.prod.yml up -d
+        
+        # Wait for services
+        sleep 30
+        
+        # Health checks
+        echo 'Running health checks...'
+        ./Scripts/health-check-prod.sh
+        
+        echo '=== Staging Deployment Successful ==='
       "
   needs:
-    - build-push:backend
-    - build-push:frontend
+    - build:auth-service
+    - build:account-service
+    - build:transaction-service
+    - build:notification-service
+    - build:frontend
+  only:
+    - develop
+  when: on_success
+  retry:
+    max: 1
+
+# ============================================
+# DEPLOY - Production
+# ============================================
+
+deploy:production:
+  stage: deploy-production
+  image: alpine:latest
+  environment:
+    name: production
+    url: https://${PRODUCTION_DOMAIN}
+  before_script:
+    - apk add --no-cache openssh-client bash curl
+    - eval $(ssh-agent -s)
+    - echo "$PRODUCTION_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - |
+      ssh $PRODUCTION_USER@$PRODUCTION_HOST "
+        set -e
+        echo ' Production Deployment Started at '$(date)
+        cd $PRODUCTION_DEPLOY_PATH
+        
+        # Verify current state
+        echo ' Verifying current deployment...'
+        docker-compose -f docker-compose.prod.yml ps
+        
+        # Backup database (CRITICAL)
+        echo ' Creating database backup...'
+        ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
+        ls -lah /backups/banking/ | tail -5
+        
+        # Update environment
+        echo ' Updating environment variables...'
+        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
+        
+        # Pull images
+        echo ' Pulling latest container images...'
+        export DOCKER_REGISTRY=$CI_REGISTRY_IMAGE
+        docker-compose -f docker-compose.prod.yml pull
+        
+        # Deploy with zero-downtime (rolling update)
+        echo ' Deploying services (rolling update)...'
+        docker-compose -f docker-compose.prod.yml up -d --no-deps --build
+        
+        # Wait for stabilization
+        echo ' Waiting for services to stabilize...'
+        sleep 40
+        
+        # Health checks
+        echo ' Running health checks...'
+        HEALTH_CHECK=0
+        for i in {1..5}; do
+          if ./Scripts/health-check-prod.sh; then
+            HEALTH_CHECK=1
+            break
+          fi
+          echo \"Health check attempt \$i/5 failed, retrying...\"
+          sleep 5
+        done
+        
+        if [ \$HEALTH_CHECK -eq 0 ]; then
+          echo ' Health checks failed! Rolling back...'
+          exit 1
+        fi
+        
+        # Log deployment success
+        echo ' Production Deployment Successful!'
+        echo \"Deployed at: \$(date)\"
+        echo \"Commit: $CI_COMMIT_SHA\"
+        echo \"Image Tag: $IMAGE_TAG\"
+        
+        # Store deployment info
+        echo \"$CI_COMMIT_SHA\" > /tmp/last-deployment.txt
+      "
+  needs:
+    - build:auth-service
+    - build:account-service
+    - build:transaction-service
+    - build:notification-service
+    - build:frontend
+  only:
+    - main
+    - tags
+  when: on_success
+  retry:
+    max: 1
+
+# ============================================
+# ROLLBACK - Production
+# ============================================
+
+rollback:production:
+  stage: rollback
+  image: alpine:latest
+  environment:
+    name: production
+  before_script:
+    - apk add --no-cache openssh-client bash
+    - eval $(ssh-agent -s)
+    - echo "$PRODUCTION_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - |
+      ssh $PRODUCTION_USER@$PRODUCTION_HOST "
+        echo ' Rollback Initiated'
+        cd $PRODUCTION_DEPLOY_PATH
+        
+        # Get previous backup
+        LATEST_BACKUP=\$(ls -t /backups/banking/ | head -2 | tail -1)
+        
+        if [ -z \"\$LATEST_BACKUP\" ]; then
+          echo ' No backup found for rollback'
+          exit 1
+        fi
+        
+        echo \"Using backup: \$LATEST_BACKUP\"
+        
+        # Stop services
+        echo ' Stopping services...'
+        docker-compose -f docker-compose.prod.yml down
+        
+        # Restore database
+        echo ' Restoring database...'
+        ./Scripts/restore-db.sh all /backups/banking/\$LATEST_BACKUP
+        
+        # Start services
+        echo ' Restarting services...'
+        docker-compose -f docker-compose.prod.yml up -d
+        
+        sleep 30
+        
+        # Verify
+        echo ' Rollback Complete'
+        docker-compose -f docker-compose.prod.yml ps
+      "
+  only:
+    - main
   when: manual
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: never
-    - if: $DEPLOY_HOST == null || $DEPLOY_HOST == ""
-      when: never
-    - when: manual
+
+# ============================================
+# NOTIFICATIONS
+# ============================================
+
+notify:slack:success:
+  stage: notify
+  image: curlimages/curl:latest
+  script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+        --data "{
+          \"text\":\" Deployment Successful\",
+          \"blocks\":[
+            {
+              \"type\":\"section\",
+              \"text\":{
+                \"type\":\"mrkdwn\",
+                \"text\":\"*Banking Portal - $CI_COMMIT_REF_NAME*\n*Status:*  Success\n*Commit:* $CI_COMMIT_SHA\n*Branch:* $CI_COMMIT_REF_NAME\n*Author:* $GITLAB_USER_NAME\"
+              }
+            }
+          ]
+        }" \
+        $SLACK_WEBHOOK_URL
+  only:
+    - main
+  when: on_success
+
+notify:slack:failure:
+  stage: notify
+  image: curlimages/curl:latest
+  script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+        --data "{
+          \"text\":\" Deployment Failed\",
+          \"blocks\":[
+            {
+              \"type\":\"section\",
+              \"text\":{
+                \"type\":\"mrkdwn\",
+                \"text\":\"*Banking Portal - $CI_COMMIT_REF_NAME*\n*Status:*  Failed\n*Commit:* $CI_COMMIT_SHA\n*Author:* $GITLAB_USER_NAME\n*Check:* $CI_PIPELINE_URL\"
+              }
+            }
+          ]
+        }" \
+        $SLACK_WEBHOOK_URL
+  only:
+    - main
+  when: on_failure

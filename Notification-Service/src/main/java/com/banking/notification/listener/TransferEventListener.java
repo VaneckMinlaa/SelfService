@@ -13,38 +13,47 @@ import org.springframework.stereotype.Component;
 public class TransferEventListener {
 
     private final EmailService emailService;
+    private final com.banking.notification.service.SmsService smsService;
+    private final com.banking.notification.client.AuthServiceClient authServiceClient;
 
     @RabbitListener(queues = "transfer-completed-queue")
     public void handleTransferCompleted(TransferEvent event) {
         try {
             log.info("Received transfer event for transaction: {}", event.getTransactionId());
 
-            // Note: In a real system, you would fetch user details from Auth Service
-            // For now, just log the event
-            String fromUserEmail = "from_user_" + event.getFromUserId() + "@example.com";
-            String toUserEmail = "to_user_" + event.getToUserId() + "@example.com";
-            String fromUserName = "User " + event.getFromUserId();
-            String toUserName = "User " + event.getToUserId();
+            com.banking.notification.client.AuthServiceClient.UserInfo fromUser = authServiceClient.getUserInfo(event.getFromUserId());
+            com.banking.notification.client.AuthServiceClient.UserInfo toUser = authServiceClient.getUserInfo(event.getToUserId());
 
-            // Send email to both parties
-            emailService.sendTransferNotification(
-                    fromUserEmail,
-                    fromUserName,
-                    event.getAmount().toString(),
-                    "Outgoing transfer: " + event.getDescription()
-            );
+            if (fromUser != null) {
+                String fromUserName = fromUser.getFirstName() + " " + fromUser.getLastName();
+                emailService.sendTransferNotification(
+                        fromUser.getEmail(),
+                        fromUserName,
+                        event.getAmount().toString(),
+                        "Outgoing transfer: " + event.getDescription()
+                );
+                
+                String smsMsg = String.format("Bank Info: You have sent %s FCFA. Ref: %s", event.getAmount().toString(), event.getDescription());
+                smsService.sendTransferSms(fromUser.getPhoneNumber(), smsMsg);
+            }
 
-            emailService.sendTransferNotification(
-                    toUserEmail,
-                    toUserName,
-                    event.getAmount().toString(),
-                    "Incoming transfer: " + event.getDescription()
-            );
+            if (toUser != null) {
+                String toUserName = toUser.getFirstName() + " " + toUser.getLastName();
+                emailService.sendTransferNotification(
+                        toUser.getEmail(),
+                        toUserName,
+                        event.getAmount().toString(),
+                        "Incoming transfer: " + event.getDescription()
+                );
+
+                String smsMsg = String.format("Bank Info: You have received %s FCFA. Ref: %s", event.getAmount().toString(), event.getDescription());
+                smsService.sendTransferSms(toUser.getPhoneNumber(), smsMsg);
+            }
 
             log.info("Transfer notifications sent for transaction {}", event.getTransactionId());
         } catch (Exception e) {
             log.error("Error processing transfer event: {}", e.getMessage(), e);
-            // In production, you might want to implement retry logic here
+            throw e;
         }
     }
 }

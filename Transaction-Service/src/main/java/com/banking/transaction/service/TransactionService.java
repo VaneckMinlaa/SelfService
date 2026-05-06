@@ -41,10 +41,32 @@ public class TransactionService {
             throw new RuntimeException("Cannot transfer to the same account");
         }
 
-        // Note: In a real system, you would call Account Service to verify accounts and debit/credit balances
-        // For now, we just create the transaction record
+        String accountServiceUrl = System.getenv().getOrDefault("ACCOUNT_SERVICE_URL", "http://localhost:8082");
 
-        // Create transaction record
+        // Debit source account
+        org.springframework.http.ResponseEntity<Void> debitResponse = restTemplate.exchange(
+                accountServiceUrl + "/api/accounts/" + fromAccountId + "/debit?amount=" + amount + "&userId=" + userId,
+                org.springframework.http.HttpMethod.PUT,
+                null,
+                Void.class
+        );
+
+        if (!debitResponse.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("Erreur lors du debit du compte source");
+        }
+
+        // Credit destination account
+        org.springframework.http.ResponseEntity<Void> creditResponse = restTemplate.exchange(
+                accountServiceUrl + "/api/accounts/" + toAccountId + "/credit?amount=" + amount,
+                org.springframework.http.HttpMethod.PUT,
+                null,
+                Void.class
+        );
+
+        if (!creditResponse.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("Erreur lors du credit du compte destination");
+        }
+
         Transaction transaction = new Transaction();
         transaction.setFromAccountId(fromAccountId);
         transaction.setToAccountId(toAccountId);

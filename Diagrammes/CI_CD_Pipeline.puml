@@ -1,0 +1,48 @@
+@startuml CI_CD_Pipeline
+!theme plain
+actor "Developer" as dev
+participant "GitLab Repository" as gitlab
+participant "Pipeline Trigger" as trigger
+participant "Lint Stage" as lint
+participant "Build Stage\n(5 parallel)" as build
+participant "Docker Registry" as registry
+participant "Deploy Staging" as stage_deploy
+participant "Staging VPS" as stage_vps
+participant "Deploy Production" as prod_deploy
+participant "Production VPS" as prod_vps
+participant "Slack Notification" as slack
+
+autonumber
+dev --> gitlab: git push origin develop\n(or main for prod)
+gitlab --> trigger: Webhook Triggers\nPipeline
+trigger --> lint: Start Lint Job
+lint --> lint: Validate docker-compose.prod.yml\nYAML Syntax
+lint --> trigger: Lint Passed\n(or Failed)
+trigger --> build: Start 5 Build Jobs\n(Parallel)
+build --> build: build:auth-service\nbuild:account-service\nbuild:transaction-service\nbuild:notification-service\nbuild:frontend
+build --> build: docker build\n+ Metadata (BUILD_DATE, VCS_REF, VERSION)
+build --> registry: docker push\n<REGISTRY>/<service>:<TAG>
+registry --> build: Image Pushed\nSuccessfully
+build --> trigger: All Builds Complete
+trigger --> stage_deploy: Start Deploy Staging\n(if develop branch)
+stage_deploy --> stage_vps: SSH to Staging\n(STAGING_HOST)
+stage_vps --> stage_vps: Backup Database\n(pg_dump all 3 DBs)
+stage_vps --> stage_vps: Update .env\nIMAGE_TAG
+stage_vps --> stage_vps: docker-compose pull\n(Latest Images)
+stage_vps --> stage_vps: docker-compose up -d\n(Rolling Update)
+stage_vps --> stage_vps: Wait 30s for\nStabilization
+stage_vps --> stage_deploy: Health Checks:\nAll Services Running
+stage_deploy --> trigger: Deploy Staging\nSuccessful
+trigger --> prod_deploy: Start Deploy Production\n(if main/tags branch)
+prod_deploy --> prod_vps: SSH to Production\n(PRODUCTION_HOST)
+prod_vps --> prod_vps: CRITICAL: Backup Database\n(pg_dump + gzip)
+prod_vps --> prod_vps: Update .env\nIMAGE_TAG
+prod_vps --> prod_vps: docker-compose pull\n(Latest Images)
+prod_vps --> prod_vps: docker-compose up -d\n(Rolling Update)
+prod_vps --> prod_vps: Wait 40s for\nStabilization
+prod_vps --> prod_vps: Health Checks Loop:\n5 Attempts (5s intervals)
+prod_vps --> prod_vps: If Health Check Fails:\nAuto-Rollback from Backup
+prod_deploy --> slack: Notify Success\n(Commit SHA, Author, Branch)
+prod_deploy --> trigger: Deployment Complete
+
+@enduml

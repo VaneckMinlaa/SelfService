@@ -1,0 +1,28 @@
+@startuml Authentication_Sequence
+!theme plain
+participant "Web Client" as client
+participant "API Gateway\n(NGINX)" as gateway
+participant "Auth Service" as auth
+database "auth_db" as db
+participant "Account Service" as account
+
+autonumber
+client --> gateway: POST /api/auth/login\n{username, password}
+gateway --> auth: Forward Request\n+ Security Check
+auth --> db: Query User by\nUsername
+db --> auth: Return User Record\n(Password Hash)
+auth --> auth: Verify Password\n(BCrypt Compare)
+auth --> auth: Generate JWT\n(HMAC-SHA512)
+auth --> db: Log Audit Event\n(Login Attempt)
+auth --> gateway: Return JWT Token\n+ Expiration
+gateway --> client: 200 OK\n{token, expires_in}
+client --> gateway: GET /api/accounts\nHeader: Authorization: Bearer <JWT>
+gateway --> gateway: Validate JWT\nSignature & Expiry
+gateway --> account: Forward Request\n+ User Context
+account --> account: Authorize Request\n(Check Roles)
+account --> db: Query User Accounts
+db --> account: Return Accounts\nList
+account --> gateway: Return Accounts\nData
+gateway --> client: 200 OK\n{accounts: [...]]}
+
+@enduml

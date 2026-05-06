@@ -1,0 +1,82 @@
+
+@startuml Service_Deployment
+!theme plain
+cloud "Docker Compose\nProduction Cluster" {
+    node "NGINX Container" {
+        component "Reverse Proxy\nPort: 80/443" as nginx
+    }
+
+    node "Auth Service Container" {
+        component "Spring Boot App\nPort: 8081" as auth
+    }
+
+    node "Account Service Container" {
+        component "Spring Boot App\nPort: 8082" as account
+    }
+
+    node "Transaction Service Container" {
+        component "Spring Boot App\nPort: 8083" as transaction
+    }
+
+    node "Notification Service Container" {
+        component "Spring Boot App\nPort: 8084" as notification
+    }
+
+    node "Frontend Container" {
+        component "React App\nPort: 3000" as frontend
+    }
+
+    node "PostgreSQL Auth Container" {
+        database "auth_db\nVolume: /var/lib/postgresql" as auth_db
+    }
+
+    node "PostgreSQL Account Container" {
+        database "account_db\nVolume: /var/lib/postgresql" as account_db
+    }
+
+    node "PostgreSQL Transaction Container" {
+        database "transaction_db\nVolume: /var/lib/postgresql" as transaction_db
+    }
+
+    node "RabbitMQ Container" {
+        component "Message Broker\nPort: 5672/15672" as rabbitmq
+    }
+
+    node "Prometheus Container" {
+        component "Metrics Collector\nPort: 9090" as prometheus
+    }
+
+    node "Grafana Container" {
+        component "Visualization\nPort: 3000" as grafana
+    }
+
+    node "Certbot Container" {
+        component "SSL/TLS Renewal\nVolume: /etc/letsencrypt" as certbot
+    }
+
+    nginx --> auth: Forward /api/auth/*
+    nginx --> account: Forward /api/accounts/*
+    nginx --> transaction: Forward /api/transactions/*
+    nginx --> frontend: Serve Static
+    
+    auth --> auth_db: Query/Update
+    account --> account_db: Query/Update
+    transaction --> transaction_db: Query/Update
+    
+    transaction --> rabbitmq: Publish Events
+    notification --> rabbitmq: Consume Events
+    
+    auth --> prometheus: Metrics
+    account --> prometheus: Metrics
+    transaction --> prometheus: Metrics
+    notification --> prometheus: Metrics
+    rabbitmq --> prometheus: Metrics
+    
+    prometheus --> grafana: Provide Metrics
+}
+
+node "Docker Network\n(banking-network)" {
+    component "Bridge Network\nSubnet: 172.20.0.0/16" as network
+}
+
+@enduml

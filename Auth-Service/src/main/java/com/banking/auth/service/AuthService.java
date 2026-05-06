@@ -38,24 +38,20 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElse(null);
 
-        // Consigner la tentative échouée
         if (user == null || !user.getIsActive()) {
             auditService.log(null, "FAILED_LOGIN", clientIp, false,
                     "Utilisateur non trouvé ou inactif: " + request.getEmail());
             throw new RuntimeException("Identifiants invalides");
         }
 
-        // Vérifier le mot de passe
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             auditService.log(user.getId(), "FAILED_LOGIN", clientIp, false,
                     "Mot de passe invalide pour l'utilisateur: " + request.getEmail());
             throw new RuntimeException("Identifiants invalides");
         }
 
-        // Générer le jeton JWT
         String token = jwtProvider.generateToken(user.getId(), user.getEmail());
 
-        // Consigner la connexion réussie
         auditService.log(user.getId(), "LOGIN", clientIp, true,
                 "Utilisateur connecté avec succès");
 

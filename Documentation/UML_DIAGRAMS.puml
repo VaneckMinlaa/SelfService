@@ -1,0 +1,790 @@
+@startuml System_Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam component {
+    BackgroundColor<<service>> #E1F5FF
+    BackgroundColor<<database>> #FFF3E0
+    BackgroundColor<<queue>> #F3E5F5
+    BackgroundColor<<monitoring>> #E8F5E9
+    BackgroundColor<<infrastructure>> #F5F5F5
+    BorderColor #424242
+}
+
+package "Client Tier" {
+    actor "End User" as user
+    component "Web Browser" as browser
+}
+
+package "API Gateway & Security" {
+    component "NGINX Reverse Proxy\n(Port 80/443)" as nginx <<infrastructure>>
+    component "ModSecurity WAF" as waf <<infrastructure>>
+    component "TLS 1.2+\nLet's Encrypt" as tls <<infrastructure>>
+}
+
+package "Microservices" {
+    component "Auth Service\n(Port 8081)" as auth <<service>>
+    component "Account Service\n(Port 8082)" as account <<service>>
+    component "Transaction Service\n(Port 8083)" as transaction <<service>>
+    component "Notification Service\n(Port 8084)" as notification <<service>>
+    component "Frontend\nReact + Vite" as frontend <<service>>
+}
+
+package "Data Layer" {
+    database "PostgreSQL\nauth_db" as db_auth <<database>>
+    database "PostgreSQL\naccount_db" as db_account <<database>>
+    database "PostgreSQL\ntransaction_db" as db_transaction <<database>>
+}
+
+package "Message Queue" {
+    component "RabbitMQ\n(Port 5672)" as rabbitmq <<queue>>
+}
+
+package "Monitoring & Observability" {
+    component "Prometheus\n(Metrics)" as prometheus <<monitoring>>
+    component "Grafana\n(Dashboards)" as grafana <<monitoring>>
+    component "Health Checks" as health <<monitoring>>
+}
+
+package "Infrastructure" {
+    component "Docker Compose\nOrchestration" as docker <<infrastructure>>
+    component "Backup & Recovery\nSystem" as backup <<infrastructure>>
+    component "Cron Scheduler\n(Daily 2 AM)" as cron <<infrastructure>>
+}
+
+package "CI/CD Pipeline" {
+    component "GitLab\nRepository" as gitlab <<infrastructure>>
+    component "Build Pipeline\n(Lint/Build/Push)" as pipeline <<infrastructure>>
+    component "Deploy Pipeline\n(Staging/Prod)" as deploy <<infrastructure>>
+}
+
+user --> browser: HTTP/HTTPS Requests
+browser --> nginx: Requests
+nginx --> waf: Security Check
+waf --> tls: Encrypted Channel
+tls --> frontend: Static Content\n(SPA)
+tls --> nginx: Forward
+nginx --> auth: /api/auth/*\n(Rate Limited 5/s)
+nginx --> account: /api/accounts/*\n(Rate Limited 100/s)
+nginx --> transaction: /api/transactions/*\n(Rate Limited 100/s)
+
+auth --> db_auth: User Credentials\n& Audit Logs
+account --> db_account: Account Data\n& Balance
+transaction --> db_transaction: Transfers\n& Ledger
+transaction --> rabbitmq: TransferEvent\nPublished
+notification --> rabbitmq: Events\nConsumed
+notification --> auth: Send Email\nNotification
+
+auth --> health: Health Check
+account --> health: Health Check
+transaction --> health: Health Check
+notification --> health: Health Check
+
+prometheus --> auth: Scrape Metrics\n(30s interval)
+prometheus --> account: Scrape Metrics
+prometheus --> transaction: Scrape Metrics
+prometheus --> notification: Scrape Metrics
+prometheus --> rabbitmq: Scrape Metrics
+prometheus --> db_auth: Scrape Metrics\n(exporter)
+prometheus --> db_account: Scrape Metrics
+prometheus --> db_transaction: Scrape Metrics
+
+grafana --> prometheus: Query Metrics\n(Visualization)
+grafana --> health: Display Status
+
+docker --> auth: Orchestrate
+docker --> account: Orchestrate
+docker --> transaction: Orchestrate
+docker --> notification: Orchestrate
+docker --> frontend: Orchestrate
+docker --> db_auth: Manage Volume
+docker --> db_account: Manage Volume
+docker --> db_transaction: Manage Volume
+docker --> rabbitmq: Orchestrate
+docker --> prometheus: Orchestrate
+docker --> grafana: Orchestrate
+
+cron --> backup: Trigger Daily\nBackup (2 AM)
+backup --> db_auth: Dump auth_db
+backup --> db_account: Dump account_db
+backup --> db_transaction: Dump transaction_db
+
+gitlab --> pipeline: Push Triggers
+pipeline --> docker: Build Images
+docker --> deploy: Update Images
+deploy --> nginx: Rolling Update
+
+@enduml
+
+@startuml Authentication_Sequence
+!theme plain
+participant "Web Client" as client
+participant "API Gateway\n(NGINX)" as gateway
+participant "Auth Service" as auth
+database "auth_db" as db
+participant "Account Service" as account
+
+autonumber
+client --> gateway: POST /api/auth/login\n{username, password}
+gateway --> auth: Forward Request\n+ Security Check
+auth --> db: Query User by\nUsername
+db --> auth: Return User Record\n(Password Hash)
+auth --> auth: Verify Password\n(BCrypt Compare)
+auth --> auth: Generate JWT\n(HMAC-SHA512)
+auth --> db: Log Audit Event\n(Login Attempt)
+auth --> gateway: Return JWT Token\n+ Expiration
+gateway --> client: 200 OK\n{token, expires_in}
+client --> gateway: GET /api/accounts\nHeader: Authorization: Bearer <JWT>
+gateway --> gateway: Validate JWT\nSignature & Expiry
+gateway --> account: Forward Request\n+ User Context
+account --> account: Authorize Request\n(Check Roles)
+account --> db: Query User Accounts
+db --> account: Return Accounts\nList
+account --> gateway: Return Accounts\nData
+gateway --> client: 200 OK\n{accounts: [...]]}
+
+@enduml
+
+@startuml Transfer_Transaction_Sequence
+!theme plain
+participant "Web Client" as client
+participant "API Gateway" as gateway
+participant "Transaction Service" as transaction
+database "transaction_db" as txdb
+database "account_db" as accdb
+participant "Account Service" as account
+participant "RabbitMQ" as rabbitmq
+participant "Notification Service" as notification
+
+autonumber
+client --> gateway: POST /api/transactions/transfer\n{from, to, amount}
+gateway --> transaction: Forward Request\n+ JWT Validation
+transaction --> transaction: Validate Request\n(Schema, Amount > 0)
+transaction --> accdb: Lock Source Account\n(Row-Level Lock)
+transaction --> accdb: Query Source Balance
+accdb --> transaction: Return Balance
+transaction --> transaction: Check Balance\n>= Amount
+transaction --> accdb: Debit Source\nAccount
+transaction --> accdb: Lock Target Account\n(Row-Level Lock)
+transaction --> accdb: Credit Target\nAccount
+transaction --> txdb: Create Transaction\nRecord (PENDING)
+transaction --> txdb: Update Status\nto COMPLETED
+transaction --> rabbitmq: Publish TransferEvent\n{from, to, amount, timestamp}
+rabbitmq --> transaction: Event Acknowledged
+transaction --> gateway: Return 201 Created\n{transaction_id, status}
+gateway --> client: 201 Created\n{transaction_id}
+rabbitmq --> notification: Consume TransferEvent\n(Async)
+notification --> notification: Generate Email\nMessage
+notification --> notification: Send Email\nNotification
+notification --> transaction: Log Notification\nSent
+
+@enduml
+
+@startuml CI_CD_Pipeline
+!theme plain
+actor "Developer" as dev
+participant "GitLab Repository" as gitlab
+participant "Pipeline Trigger" as trigger
+participant "Lint Stage" as lint
+participant "Build Stage\n(5 parallel)" as build
+participant "Docker Registry" as registry
+participant "Deploy Staging" as stage_deploy
+participant "Staging VPS" as stage_vps
+participant "Deploy Production" as prod_deploy
+participant "Production VPS" as prod_vps
+participant "Slack Notification" as slack
+
+autonumber
+dev --> gitlab: git push origin develop\n(or main for prod)
+gitlab --> trigger: Webhook Triggers\nPipeline
+trigger --> lint: Start Lint Job
+lint --> lint: Validate docker-compose.prod.yml\nYAML Syntax
+lint --> trigger: Lint Passed\n(or Failed)
+trigger --> build: Start 5 Build Jobs\n(Parallel)
+build --> build: build:auth-service\nbuild:account-service\nbuild:transaction-service\nbuild:notification-service\nbuild:frontend
+build --> build: docker build\n+ Metadata (BUILD_DATE, VCS_REF, VERSION)
+build --> registry: docker push\n<REGISTRY>/<service>:<TAG>
+registry --> build: Image Pushed\nSuccessfully
+build --> trigger: All Builds Complete
+trigger --> stage_deploy: Start Deploy Staging\n(if develop branch)
+stage_deploy --> stage_vps: SSH to Staging\n(STAGING_HOST)
+stage_vps --> stage_vps: Backup Database\n(pg_dump all 3 DBs)
+stage_vps --> stage_vps: Update .env\nIMAGE_TAG
+stage_vps --> stage_vps: docker-compose pull\n(Latest Images)
+stage_vps --> stage_vps: docker-compose up -d\n(Rolling Update)
+stage_vps --> stage_vps: Wait 30s for\nStabilization
+stage_vps --> stage_deploy: Health Checks:\nAll Services Running
+stage_deploy --> trigger: Deploy Staging\nSuccessful
+trigger --> prod_deploy: Start Deploy Production\n(if main/tags branch)
+prod_deploy --> prod_vps: SSH to Production\n(PRODUCTION_HOST)
+prod_vps --> prod_vps: CRITICAL: Backup Database\n(pg_dump + gzip)
+prod_vps --> prod_vps: Update .env\nIMAGE_TAG
+prod_vps --> prod_vps: docker-compose pull\n(Latest Images)
+prod_vps --> prod_vps: docker-compose up -d\n(Rolling Update)
+prod_vps --> prod_vps: Wait 40s for\nStabilization
+prod_vps --> prod_vps: Health Checks Loop:\n5 Attempts (5s intervals)
+prod_vps --> prod_vps: If Health Check Fails:\nAuto-Rollback from Backup
+prod_deploy --> slack: Notify Success\n(Commit SHA, Author, Branch)
+prod_deploy --> trigger: Deployment Complete
+
+@enduml
+
+@startuml Database_Schema
+!theme plain
+entity "Users" {
+    * user_id : INTEGER
+    --
+    username : VARCHAR(100)
+    email : VARCHAR(255)
+    password_hash : VARCHAR(255)
+    roles : VARCHAR(50)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+entity "AuditLogs" {
+    * audit_id : INTEGER
+    --
+    user_id : INTEGER (FK)
+    action : VARCHAR(100)
+    resource : VARCHAR(100)
+    details : TEXT
+    timestamp : TIMESTAMP
+}
+
+entity "Accounts" {
+    * account_id : INTEGER
+    --
+    user_id : INTEGER (FK)
+    account_number : VARCHAR(20)
+    account_type : VARCHAR(50)
+    balance : DECIMAL(15,2)
+    currency : VARCHAR(3)
+    status : VARCHAR(20)
+    created_at : TIMESTAMP
+    updated_at : TIMESTAMP
+}
+
+entity "Transactions" {
+    * transaction_id : INTEGER
+    --
+    source_account_id : INTEGER (FK)
+    destination_account_id : INTEGER (FK)
+    amount : DECIMAL(15,2)
+    currency : VARCHAR(3)
+    status : VARCHAR(20)
+    description : TEXT
+    timestamp : TIMESTAMP
+}
+
+Users ||--o{ AuditLogs : "generates"
+Users ||--o{ Accounts : "owns"
+Accounts ||--o{ Transactions : "source"
+Accounts ||--o{ Transactions : "destination"
+
+@enduml
+
+@startuml Service_Deployment
+!theme plain
+cloud "Docker Compose\nProduction Cluster" {
+    node "NGINX Container" {
+        component "Reverse Proxy\nPort: 80/443" as nginx
+    }
+
+    node "Auth Service Container" {
+        component "Spring Boot App\nPort: 8081" as auth
+    }
+
+    node "Account Service Container" {
+        component "Spring Boot App\nPort: 8082" as account
+    }
+
+    node "Transaction Service Container" {
+        component "Spring Boot App\nPort: 8083" as transaction
+    }
+
+    node "Notification Service Container" {
+        component "Spring Boot App\nPort: 8084" as notification
+    }
+
+    node "Frontend Container" {
+        component "React App\nPort: 3000" as frontend
+    }
+
+    node "PostgreSQL Auth Container" {
+        database "auth_db\nVolume: /var/lib/postgresql" as auth_db
+    }
+
+    node "PostgreSQL Account Container" {
+        database "account_db\nVolume: /var/lib/postgresql" as account_db
+    }
+
+    node "PostgreSQL Transaction Container" {
+        database "transaction_db\nVolume: /var/lib/postgresql" as transaction_db
+    }
+
+    node "RabbitMQ Container" {
+        component "Message Broker\nPort: 5672/15672" as rabbitmq
+    }
+
+    node "Prometheus Container" {
+        component "Metrics Collector\nPort: 9090" as prometheus
+    }
+
+    node "Grafana Container" {
+        component "Visualization\nPort: 3000" as grafana
+    }
+
+    node "Certbot Container" {
+        component "SSL/TLS Renewal\nVolume: /etc/letsencrypt" as certbot
+    }
+
+    nginx --> auth: Forward /api/auth/*
+    nginx --> account: Forward /api/accounts/*
+    nginx --> transaction: Forward /api/transactions/*
+    nginx --> frontend: Serve Static
+    
+    auth --> auth_db: Query/Update
+    account --> account_db: Query/Update
+    transaction --> transaction_db: Query/Update
+    
+    transaction --> rabbitmq: Publish Events
+    notification --> rabbitmq: Consume Events
+    
+    auth --> prometheus: Metrics
+    account --> prometheus: Metrics
+    transaction --> prometheus: Metrics
+    notification --> prometheus: Metrics
+    rabbitmq --> prometheus: Metrics
+    
+    prometheus --> grafana: Provide Metrics
+}
+
+node "Docker Network\n(banking-network)" {
+    component "Bridge Network\nSubnet: 172.20.0.0/16" as network
+}
+
+@enduml
+
+@startuml Monitoring_Architecture
+!theme plain
+package "Service Metrics Collection" {
+    component "Auth Service\n/actuator/prometheus" as auth_metrics
+    component "Account Service\n/actuator/prometheus" as account_metrics
+    component "Transaction Service\n/actuator/prometheus" as transaction_metrics
+    component "Notification Service\n/actuator/prometheus" as notification_metrics
+    component "RabbitMQ Metrics\nPort: 15672" as rabbitmq_metrics
+    component "PostgreSQL Exporter\nPort: 9187" as pg_exporter
+}
+
+package "Metrics Aggregation" {
+    component "Prometheus\n(30s Scrape Interval)" as prometheus
+    component "Time-Series Database\n(30-Day Retention)" as tsdb
+}
+
+package "Visualization & Alerting" {
+    component "Grafana\nDashboards" as grafana
+    component "Alert Rules\n(Threshold-Based)" as alerts
+}
+
+package "Health Monitoring" {
+    component "Docker HEALTHCHECK\n(30s Interval)" as docker_health
+    component "Custom Health Endpoints\n(/health, /health/readiness)" as app_health
+}
+
+package "Logging" {
+    component "JSON Logging Driver\n(10MB max, 3 files)" as logging
+    component "Log Aggregation\n(/var/log/banking/)" as log_agg
+}
+
+package "Notifications" {
+    component "Slack Webhooks" as slack
+    component "Email Alerts" as email
+}
+
+auth_metrics --> prometheus: HTTP GET\n(30s interval)
+account_metrics --> prometheus: HTTP GET
+transaction_metrics --> prometheus: HTTP GET
+notification_metrics --> prometheus: HTTP GET
+rabbitmq_metrics --> prometheus: HTTP GET
+pg_exporter --> prometheus: HTTP GET
+
+prometheus --> tsdb: Store Metrics
+
+tsdb --> grafana: Query Data\n(Visualization)
+tsdb --> alerts: Evaluate Rules\n(Real-time)
+
+docker_health --> prometheus: Container Status
+app_health --> prometheus: Application Status
+
+logging --> log_agg: Stream Logs
+log_agg --> alerts: Pattern Detection
+
+alerts --> slack: Send Alert\n(Threshold Triggered)
+alerts --> email: Send Alert
+
+@enduml
+
+@startuml Security_Layers
+!theme plain
+package "Layer 1: Perimeter Security" {
+    component "DDoS Protection\n(ISP/CDN)" as ddos
+    component "Firewall Rules\n(Allow 22, 80, 443)" as firewall
+}
+
+package "Layer 2: Transport Security" {
+    component "TLS 1.2+\nEncryption" as tls
+    component "OCSP Stapling" as ocsp
+    component "Certificate Pinning" as pinning
+}
+
+package "Layer 3: API Gateway" {
+    component "NGINX Reverse Proxy" as nginx
+    component "Rate Limiting\n(5/s auth, 100/s API)" as ratelimit
+    component "ModSecurity WAF" as waf
+}
+
+package "Layer 4: Application Security" {
+    component "JWT Validation\n(HMAC-SHA512)" as jwt
+    component "RBAC Authorization" as rbac
+    component "Input Validation" as input_val
+    component "SQL Parameterization" as sql_param
+}
+
+package "Layer 5: Data Security" {
+    component "Encryption at Rest\n(LUKS/dm-crypt)" as encrypt_rest
+    component "Network Isolation\n(Private VPC/Docker)" as isolation
+    component "Secrets Management\n(Env Variables)" as secrets
+}
+
+package "Layer 6: Infrastructure Security" {
+    component "Non-Root Containers\n(UID 1000+)" as nonroot
+    component "Resource Limits\n(CPU, Memory)" as limits
+    component "Signed Images" as signing
+}
+
+package "Layer 7: Monitoring & Response" {
+    component "Audit Logging\n(All Actions)" as audit
+    component "Security Alerts\n(Real-time)" as sec_alerts
+    component "Incident Response\n(Playbooks)" as response
+}
+
+ddos --> firewall: Filtered Traffic
+firewall --> tls: Allowed Port 443
+tls --> ocsp: Certificate Validation
+tls --> nginx: Encrypted Connection
+nginx --> ratelimit: All Requests
+ratelimit --> waf: Rate Check Pass
+waf --> jwt: WAF Validation Pass
+jwt --> rbac: Token Valid
+rbac --> input_val: Authorized User
+input_val --> sql_param: Clean Input
+sql_param --> encrypt_rest: Secure Query
+encrypt_rest --> isolation: Data Protection
+isolation --> secrets: Isolated Network
+secrets --> nonroot: Secret Injection
+nonroot --> limits: Container Execution
+limits --> audit: Action Logged
+audit --> sec_alerts: Security Event
+sec_alerts --> response: Alert Triggered
+
+@enduml
+
+@startuml Backup_Recovery
+!theme plain
+rectangle "Daily Backup Process" {
+    component "Cron Scheduler\n(2 AM UTC)" as cron
+    component "pg_dump\nAll 3 Databases" as pgdump
+    component "Config Backup\n(.env, docker-compose)" as config_backup
+    component "SSL Certificate\nBackup" as ssl_backup
+    component "gzip Compression\nLevel 6" as gzip
+    component "Timestamped\nDirectory\n(/backups/banking/\nYYYY-MM-DD_HH-MM-SS/)" as backup_store
+    component "30-Day\nRetention\nCleanup" as cleanup
+}
+
+rectangle "Disaster Recovery Process" {
+    component "Manual Trigger\nrestore-db.sh" as restore_trigger
+    component "Select Backup\nDirectory" as select_backup
+    component "gzip\nDecompression" as gunzip
+    component "Drop Current\nDatabase" as drop_db
+    component "Import SQL\nDump" as import_sql
+    component "Verify Data\nIntegrity" as verify
+    component "Update\nApplication\nState" as update_app
+    component "Production\nServices Running" as running
+}
+
+cron --> pgdump: Trigger at 2 AM
+pgdump --> config_backup: Database Backup\nComplete
+config_backup --> ssl_backup: Configuration\nBackup Complete
+ssl_backup --> gzip: Certificate\nBackup Complete
+gzip --> backup_store: Compress All Files
+backup_store --> backup_store: Store as\nauth_db.sql.gz\naccount_db.sql.gz\ntransaction_db.sql.gz
+backup_store --> cleanup: Write Timestamp
+cleanup --> cleanup: Auto-Delete Backups\nOlder than 30 Days
+
+restore_trigger --> select_backup: User Selection
+select_backup --> gunzip: Load Backup Files
+gunzip --> drop_db: Decompress
+drop_db --> import_sql: Drop Structures
+import_sql --> verify: Import SQL
+verify --> update_app: Data Validation Pass
+update_app --> running: Database Online
+
+@enduml
+
+@startuml Complete_Service_Interactions
+!theme plain
+participant "End User\nBrowser" as user
+participant "NGINX\nReverse Proxy\nPort 80/443" as nginx
+participant "Auth Service\nPort 8081\nUID: 1000" as auth_svc
+participant "Account Service\nPort 8082\nUID: 1000" as acct_svc
+participant "Transaction Service\nPort 8083\nUID: 1000" as txn_svc
+participant "Notification Service\nPort 8084\nUID: 1000" as notif_svc
+participant "RabbitMQ\nPort 5672\n(Events)" as rabbit
+database "PostgreSQL\nauth_db\nPort 5432\nUID: 999" as auth_db
+database "PostgreSQL\naccount_db\nPort 5432\nUID: 999" as acct_db
+database "PostgreSQL\ntransaction_db\nPort 5432\nUID: 999" as txn_db
+participant "Prometheus\nMetrics\nPort 9090" as prom
+participant "Grafana\nVisualization\nPort 3000" as graf
+
+autonumber
+user --> nginx: HTTPS Request\nTLS 1.2+
+nginx --> auth_svc: Forward to\nAuth Service
+auth_svc --> auth_db: Query User
+auth_db --> auth_svc: User Data
+auth_svc --> nginx: JWT Token
+nginx --> user: Response +\nToken
+user --> nginx: API Call with\nBearer Token
+nginx --> nginx: Validate JWT\n+ Rate Limit
+nginx --> acct_svc: Forward Request
+acct_svc --> acct_db: Query\nAccounts
+acct_db --> acct_svc: Account List
+acct_svc --> prom: Record Metrics
+acct_svc --> nginx: Response
+nginx --> user: Account Data
+user --> nginx: Transfer\nRequest
+nginx --> txn_svc: Forward
+txn_svc --> acct_db: Lock Source\nAccount
+txn_svc --> acct_db: Debit Source
+txn_svc --> acct_db: Lock Dest\nAccount
+txn_svc --> acct_db: Credit Dest
+txn_svc --> txn_db: Create\nTransaction
+txn_svc --> rabbit: Publish\nTransferEvent
+rabbit --> notif_svc: Event Delivered
+notif_svc --> notif_svc: Generate\nEmail
+notif_svc --> prom: Record Metrics
+prom --> graf: Scrape\nMetrics
+graf --> user: Display\nMonitoring\nDashboard
+
+@enduml
+
+@startuml Class_Diagram
+!theme plain
+skinparam classBackgroundColor #E1F5FF
+skinparam classBorderColor #01579B
+skinparam classArrowColor #01579B
+
+' ============== ENTITIES ==============
+
+class User {
+    - user_id: Long
+    - username: String
+    - email: String
+    - password_hash: String
+    - roles: Set<String>
+    - is_active: boolean
+    - created_at: DateTime
+    - updated_at: DateTime
+    --
+    + authenticate(password): boolean
+    + hasRole(role): boolean
+    + updateProfile(email): void
+}
+
+class AuditLog {
+    - audit_id: Long
+    - user_id: Long (FK)
+    - action: String
+    - resource_type: String
+    - resource_id: Long
+    - details: String
+    - ip_address: String
+    - timestamp: DateTime
+    --
+    + logAction(): void
+    + getDetails(): String
+}
+
+class Account {
+    - account_id: Long
+    - user_id: Long (FK)
+    - account_number: String
+    - account_type: AccountType
+    - balance: BigDecimal
+    - currency: String
+    - status: AccountStatus
+    - created_at: DateTime
+    --
+    + getBalance(): BigDecimal
+    + canTransfer(amount): boolean
+    + debit(amount): void
+    + credit(amount): void
+    + freeze(): void
+}
+
+class Transaction {
+    - transaction_id: Long
+    - source_account_id: Long (FK)
+    - destination_account_id: Long (FK)
+    - amount: BigDecimal
+    - currency: String
+    - status: TransactionStatus
+    - description: String
+    - reference_id: String
+    - timestamp: DateTime
+    --
+    + execute(): boolean
+    + validate(): boolean
+    + rollback(): void
+    + getStatus(): TransactionStatus
+}
+
+class TransactionEvent {
+    - event_id: Long
+    - transaction_id: Long
+    - event_type: String
+    - amount: BigDecimal
+    - timestamp: DateTime
+    - is_processed: boolean
+    --
+    + toJson(): String
+    + publish(): void
+}
+
+' ============== SERVICES ==============
+
+class AuthService {
+    - userRepository: UserRepository
+    - jwtTokenProvider: JwtTokenProvider
+    --
+    + login(username, password): JwtToken
+    + register(username, email, password): User
+    + validateToken(token): boolean
+    + refreshToken(token): JwtToken
+    + logout(token): void
+}
+
+class AccountService {
+    - accountRepository: AccountRepository
+    - userRepository: UserRepository
+    --
+    + getAccountsByUser(userId): List
+    + getAccountBalance(accountId): BigDecimal
+    + createAccount(userId, accountType): Account
+    + freezeAccount(accountId): void
+    + getTransactionHistory(accountId): List
+}
+
+class TransactionService {
+    - transactionRepository: TransactionRepository
+    - accountService: AccountService
+    - eventPublisher: EventPublisher
+    --
+    + transfer(fromId, toId, amount): Transaction
+    + validateTransfer(from, to, amount): boolean
+    + executeTransfer(transaction): boolean
+    + rollbackTransfer(transaction): void
+}
+
+class NotificationService {
+    - emailService: EmailService
+    - eventListener: EventListener
+    --
+    + onTransferEvent(event): void
+    + sendEmailNotification(user, subject): void
+    + sendSmsNotification(phone, message): void
+}
+
+' ============== REPOSITORIES ==============
+
+interface UserRepository {
+    + findById(id): User
+    + findByUsername(username): User
+    + save(user): User
+    + delete(id): void
+}
+
+interface AccountRepository {
+    + findById(id): Account
+    + findByUser(userId): List
+    + save(account): Account
+}
+
+interface TransactionRepository {
+    + findById(id): Transaction
+    + findByAccount(accountId): List
+    + save(transaction): Transaction
+}
+
+' ============== ENUMS ==============
+
+enum AccountType {
+    CHECKING
+    SAVINGS
+    INVESTMENT
+    BUSINESS
+}
+
+enum AccountStatus {
+    ACTIVE
+    FROZEN
+    CLOSED
+    PENDING
+}
+
+enum TransactionStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+    ROLLBACK
+}
+
+' ============== SECURITY ==============
+
+class JwtTokenProvider {
+    - secret: String
+    - expirationTime: Long
+    --
+    + generateToken(userId, roles): String
+    + validateToken(token): boolean
+    + getUserIdFromToken(token): Long
+}
+
+class PasswordEncoder {
+    --
+    + encode(password): String
+    + matches(rawPassword, encoded): boolean
+}
+
+' ============== RELATIONSHIPS ==============
+
+User "1" --> "*" Account : owns
+User "1" --> "*" AuditLog : generates
+Account "1" --> "*" Transaction : source
+Account "1" --> "*" Transaction : destination
+Transaction "1" --> "1" TransactionEvent : triggers
+
+AuthService --> UserRepository
+AccountService --> AccountRepository
+TransactionService --> TransactionRepository
+TransactionService --> AccountService
+NotificationService --> TransactionEvent
+
+Account --> AccountType
+Account --> AccountStatus
+Transaction --> TransactionStatus
+
+JwtTokenProvider --> PasswordEncoder
+AuthService --> JwtTokenProvider
+
+@enduml

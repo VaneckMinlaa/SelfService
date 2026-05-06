@@ -33,6 +33,9 @@ public class User {
     @Column(nullable = false)
     private Boolean isActive = true;
 
+    @Column(name = "phone_number")
+    private String phoneNumber;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

@@ -1,58 +1,380 @@
-# Production : pas d'exposition du port PostgreSQL, variables d'environnement pour secrets.
-# HTTPS : monter certificats et utiliser docker/nginx-https.conf (écoute 443).
+version: '3.8'
+
+# ============================================
+# PRODUCTION DOCKER COMPOSE
+# Pour VPS: utiliser des images pré-construites
+# Les volumes sont persistants pour données
+# ============================================
+
 services:
-  db:
-    image: postgres:16-alpine
+  # ============================================
+  # DATABASES (One per service)
+  # ============================================
+
+  postgres-auth:
+    image: postgres:15-alpine
+    container_name: postgres-auth
+    restart: always
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${AUTH_DB_NAME:-auth_db}
+      POSTGRES_USER: ${DB_USERNAME:-bankadmin}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres-auth-data:/var/lib/postgresql/data
+      - ./Scripts/backup-db.sh:/usr/local/bin/backup-db.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      interval: 10s
       timeout: 5s
       retries: 5
-    # Pas de ports: - base non exposée à l'hôte
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  backend:
-    image: ${REGISTRY:-selfservice}/backend:${IMAGE_TAG:-latest}
-    build: ./backend
+  postgres-account:
+    image: postgres:15-alpine
+    container_name: postgres-account
+    restart: always
     environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      SESSION_COOKIE_SECURE: "true"
+      POSTGRES_DB: ${ACCOUNT_DB_NAME:-account_db}
+      POSTGRES_USER: ${DB_USERNAME:-bankadmin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-account-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres-transaction:
+    image: postgres:15-alpine
+    container_name: postgres-transaction
+    restart: always
+    environment:
+      POSTGRES_DB: ${TRANSACTION_DB_NAME:-transaction_db}
+      POSTGRES_USER: ${DB_USERNAME:-bankadmin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-transaction-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # MESSAGE BROKER
+  # ============================================
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # MICROSERVICES - Images pré-construites depuis registry
+  # ============================================
+
+  auth-service:
+    image: ${DOCKER_REGISTRY}/auth-service:${IMAGE_TAG:-latest}
+    container_name: auth-service
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth:5432/${AUTH_DB_NAME:-auth_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_SHOW_SQL: "false"
+      SECURITY_JWT_SECRET: ${JWT_SECRET}
+      SECURITY_JWT_EXPIRATION: 3600000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SPRING_PROFILES_ACTIVE: production
     depends_on:
-      db:
+      postgres-auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
-      interval: 10s
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 3
       start_period: 30s
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  frontend:
-    image: ${REGISTRY:-selfservice}/frontend:${IMAGE_TAG:-latest}
-    build: ./frontend
+  account-service:
+    image: ${DOCKER_REGISTRY}/account-service:${IMAGE_TAG:-latest}
+    container_name: account-service
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-account:5432/${ACCOUNT_DB_NAME:-account_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_SHOW_SQL: "false"
+      SECURITY_JWT_SECRET: ${JWT_SECRET}
+      SECURITY_JWT_EXPIRATION: 3600000
+      AUTH_SERVICE_URL: http://auth-service:8081
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SPRING_PROFILES_ACTIVE: production
     depends_on:
-      - backend
+      postgres-account:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  proxy:
+  transaction-service:
+    image: ${DOCKER_REGISTRY}/transaction-service:${IMAGE_TAG:-latest}
+    container_name: transaction-service
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-transaction:5432/${TRANSACTION_DB_NAME:-transaction_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_JPA_SHOW_SQL: "false"
+      SPRING_RABBITMQ_HOST: ${RABBITMQ_HOST}
+      SPRING_RABBITMQ_PORT: ${RABBITMQ_PORT}
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      SECURITY_JWT_SECRET: ${JWT_SECRET}
+      SECURITY_JWT_EXPIRATION: 3600000
+      AUTH_SERVICE_URL: http://auth-service:8081
+      ACCOUNT_SERVICE_URL: http://account-service:8082
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SPRING_PROFILES_ACTIVE: production
+    depends_on:
+      postgres-transaction:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  notification-service:
+    image: ${DOCKER_REGISTRY}/notification-service:${IMAGE_TAG:-latest}
+    container_name: notification-service
+    restart: always
+    environment:
+      SPRING_RABBITMQ_HOST: ${RABBITMQ_HOST}
+      SPRING_RABBITMQ_PORT: ${RABBITMQ_PORT}
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      SPRING_MAIL_HOST: ${SMTP_HOST}
+      SPRING_MAIL_PORT: ${SMTP_PORT}
+      SPRING_MAIL_USERNAME: ${SMTP_USERNAME}
+      SPRING_MAIL_PASSWORD: ${SMTP_PASSWORD}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED: "true"
+      NOTIFICATION_FROM_EMAIL: ${NOTIFICATION_FROM_EMAIL}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      AUTH_SERVICE_URL: http://auth-service:8081
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SPRING_PROFILES_ACTIVE: production
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # API GATEWAY (Nginx) - Let's Encrypt HTTPS
+  # ============================================
+
+  nginx:
     image: nginx:alpine
+    container_name: nginx-gateway
+    restart: always
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # Pour HTTPS : monter certificats, ex. - ./certs:/etc/nginx/certs:ro
+      - ./Docker/nginx-prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./Nginx/ssl:/etc/nginx/ssl:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./Front-End/dist:/usr/share/nginx/html:ro
+      - nginx-logs:/var/log/nginx
     depends_on:
-      - frontend
-      - backend
+      auth-service:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+      transaction-service:
+        condition: service_healthy
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # CERTBOT - Renouvellement automatique Let's Encrypt
+  # ============================================
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    restart: always
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;"
+    networks:
+      - banking-network
+
+  # ============================================
+  # OBSERVABILITY (Monitoring - Production)
+  # ============================================
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    restart: always
+    volumes:
+      - ./Docker/prometheus/prometheus-prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_DOMAIN: ${DOMAIN}
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./Docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================
+# NAMED VOLUMES
+# ============================================
 
 volumes:
-  postgres_data:
+  postgres-auth-data:
+    driver: local
+  postgres-account-data:
+    driver: local
+  postgres-transaction-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  nginx-logs:
+    driver: local
+
+# ============================================
+# NETWORKS
+# ============================================
+
+networks:
+  banking-network:
+    driver: bridge
