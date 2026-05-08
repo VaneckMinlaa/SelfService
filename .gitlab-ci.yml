@@ -195,83 +195,58 @@ deploy:production:
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      # Transfert des fichiers vers la Production
-      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml .env.production Docker Scripts Nginx $PRODUCTION_USER@$PRODUCTION_HOST:$PRODUCTION_DEPLOY_PATH/
+      # === ÉTAPE 1: Construction du .env dans GitLab CI ===
+      echo "Building .env from GitLab CI variables..."
+      printf "JWT_SECRET=%s\n" "${JWT_SECRET}" > .env
+      printf "DB_USERNAME=%s\n" "${DB_USERNAME}" >> .env
+      printf "DB_PASSWORD=%s\n" "${DB_PASSWORD}" >> .env
+      printf "AUTH_DB_NAME=auth_db\n" >> .env
+      printf "ACCOUNT_DB_NAME=account_db\n" >> .env
+      printf "TRANSACTION_DB_NAME=transaction_db\n" >> .env
+      printf "RABBITMQ_HOST=rabbitmq\n" >> .env
+      printf "RABBITMQ_PORT=5672\n" >> .env
+      printf "RABBITMQ_USERNAME=%s\n" "${RABBITMQ_USERNAME}" >> .env
+      printf "RABBITMQ_PASSWORD=%s\n" "${RABBITMQ_PASSWORD}" >> .env
+      printf "SMTP_HOST=%s\n" "${SMTP_HOST:-smtp-relay.brevo.com}" >> .env
+      printf "SMTP_PORT=%s\n" "${SMTP_PORT:-587}" >> .env
+      printf "SMTP_USERNAME=%s\n" "${SMTP_USERNAME}" >> .env
+      printf "SMTP_PASSWORD=%s\n" "${SMTP_PASSWORD}" >> .env
+      printf "NOTIFICATION_FROM_EMAIL=%s\n" "${NOTIFICATION_FROM_EMAIL}" >> .env
+      printf "BREVO_API_KEY=%s\n" "${BREVO_API_KEY}" >> .env
+      printf "AUTH_SERVICE_URL=http://auth-service:8081\n" >> .env
+      printf "ACCOUNT_SERVICE_URL=http://account-service:8082\n" >> .env
+      printf "TRANSACTION_SERVICE_URL=http://transaction-service:8083\n" >> .env
+      printf "DOCKER_REGISTRY=%s\n" "${CI_REGISTRY_IMAGE}" >> .env
+      printf "IMAGE_TAG=%s\n" "${IMAGE_TAG}" >> .env
+      printf "DOMAIN=%s\n" "${PRODUCTION_DOMAIN}" >> .env
+      printf "SESSION_SECURE=true\n" >> .env
+      printf "ENVIRONMENT=production\n" >> .env
+      printf "GRAFANA_USER=%s\n" "${GRAFANA_USER:-admin}" >> .env
+      printf "GRAFANA_PASSWORD=%s\n" "${GRAFANA_PASSWORD}" >> .env
+      printf "LOG_LEVEL=WARN\n" >> .env
+      echo ".env file built successfully."
 
-      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "
-        set -e
-        echo ' Production Deployment Started at '$(date)
-        cd $PRODUCTION_DEPLOY_PATH
-        
-        # Initialisation du .env depuis le template
-        cp .env.production .env
+      # === ÉTAPE 2: Transfert des fichiers vers le VPS ===
+      echo "Transferring files to VPS..."
+      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r \
+        .env docker-compose.prod.yml Docker Scripts Nginx \
+        ${PRODUCTION_USER}@${PRODUCTION_HOST}:${PRODUCTION_DEPLOY_PATH}/
 
-        # Injection dynamique de TOUTES les variables GitLab
-        echo ' Injecting GitLab CI variables into .env...'
-        # On force le domaine en premier
-        sed -i "s|^DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g" .env
-        
-        for var in IMAGE_TAG JWT_SECRET DB_PASSWORD DB_USERNAME RABBITMQ_USERNAME RABBITMQ_PASSWORD SMTP_USERNAME SMTP_PASSWORD BREVO_API_KEY NOTIFICATION_FROM_EMAIL GRAFANA_USER GRAFANA_PASSWORD; do
-          # On récupère la valeur de la variable GitLab
-          val=\$(eval echo \"\\\$\$var\")
-          if [ ! -z \"\$val\" ]; then
-             # On remplace dans le fichier .env
-             sed -i \"s|^\${var}=.*|\${var}=\${val}|g\" .env
-          fi
-        done
+      # === ÉTAPE 3: Exécution des commandes Docker via SSH ===
+      echo "Launching deployment via SSH..."
+      DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH}"
+      REGISTRY="${CI_REGISTRY_IMAGE}"
 
-        # Verify current state
-        echo ' Verifying current deployment...'
-        docker compose -f docker-compose.prod.yml ps
-        
-        # Backup database (CRITICAL)
-        echo ' Creating database backup...'
-        chmod +x Scripts/*.sh
-        ./Scripts/backup-prod.sh >> ./deploy.log 2>&1
-        ls -lah /backups/banking/ | tail -5 || true
-        
-        # Pull images
-        echo ' Pulling latest container images...'
-        export DOCKER_REGISTRY=$CI_REGISTRY_IMAGE
-        docker compose -f docker-compose.prod.yml pull
-        
-        # Deploy with zero-downtime (rolling update)
-        echo ' Deploying services (rolling update)...'
-        docker compose -f docker-compose.prod.yml up -d --no-deps
-        
-        # Cleanup old images
-        docker image prune -f
-        
-        # Wait for stabilization
-        echo ' Waiting for services to stabilize...'
-        sleep 40
-        
-        # Health checks
-        echo ' Running health checks...'
-        HEALTH_CHECK=0
-        for i in {1..5}; do
-          if ./Scripts/health-check-prod.sh; then
-            HEALTH_CHECK=1
-            break
-          fi
-          echo \"Health check attempt \$i/5 failed, retrying...\"
-          sleep 5
-        done
-        
-        if [ \$HEALTH_CHECK -eq 0 ]; then
-          echo ' Health checks failed! Rolling back...'
-          exit 1
-        fi
-        
-        # Log deployment success
-        echo ' Production Deployment Successful!'
-        echo \"Deployed at: \$(date)\"
-        echo \"Commit: $CI_COMMIT_SHA\"
-        echo \"Image Tag: $IMAGE_TAG\"
-        
-        # Store deployment info
-        echo \"$CI_COMMIT_SHA\" > /tmp/last-deployment.txt
-      "
+      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+        ${PRODUCTION_USER}@${PRODUCTION_HOST} \
+        "cd ${PRODUCTION_DEPLOY_PATH} && \
+         echo 'Deployment started at '$(date) && \
+         chmod +x Scripts/*.sh && \
+         docker compose -f docker-compose.prod.yml ps || true && \
+         DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml pull && \
+         DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml up -d && \
+         docker image prune -f && \
+         echo 'Deployment complete!'"
   needs:
     - build:auth-service
     - build:account-service
