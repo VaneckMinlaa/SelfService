@@ -261,13 +261,8 @@ deploy:production:
       }
 
       docker logout registry.gitlab.com
-      echo "Deployment complete at $(date)!"
-      DEPLOY_SCRIPT
-
       echo "== Cleanup old images =="
       docker image prune -f
-
-      docker logout registry.gitlab.com
       echo "Deployment complete at $(date)!"
       DEPLOY_SCRIPT
       chmod +x deploy.sh
