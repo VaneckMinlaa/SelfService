@@ -119,27 +119,34 @@ deploy:staging:
     - ssh-keyscan -H $STAGING_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
+      # Transfert des fichiers vers le Staging
+      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml Docker Scripts Nginx $STAGING_USER@$STAGING_HOST:$STAGING_DEPLOY_PATH/
+
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $STAGING_USER@$STAGING_HOST "
         set -e
         echo '=== Staging Deployment Started ==='
         cd $STAGING_DEPLOY_PATH
         
+        # Initialisation du .env si inexistant
+        [ -f .env ] || touch .env
+
         # Update .env with new image tag
         echo 'Updating environment variables...'
         sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
         
         # Backup database
         echo 'Creating database backup...'
+        chmod +x Scripts/*.sh
         ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
         
         # Pull new images
         echo 'Pulling latest images...'
         export DOCKER_REGISTRY=$CI_REGISTRY_IMAGE
-        docker-compose -f docker-compose.prod.yml pull
+        docker compose -f docker-compose.prod.yml pull
         
         # Deploy
         echo 'Deploying services...'
-        docker-compose -f docker-compose.prod.yml up -d
+        docker compose -f docker-compose.prod.yml up -d
         
         # Wait for services
         sleep 30
@@ -183,32 +190,43 @@ deploy:production:
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
+      # Transfert des fichiers vers la Production
+      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml Docker Scripts Nginx $PRODUCTION_USER@$PRODUCTION_HOST:$PRODUCTION_DEPLOY_PATH/
+
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "
         set -e
         echo ' Production Deployment Started at '$(date)
         cd $PRODUCTION_DEPLOY_PATH
         
+        # Initialisation du .env si inexistant
+        [ -f .env ] || touch .env
+
         # Verify current state
         echo ' Verifying current deployment...'
-        docker-compose -f docker-compose.prod.yml ps
+        docker compose -f docker-compose.prod.yml ps
         
         # Backup database (CRITICAL)
         echo ' Creating database backup...'
+        chmod +x Scripts/*.sh
         ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
-        ls -lah /backups/banking/ | tail -5
+        ls -lah /backups/banking/ | tail -5 || true
         
         # Update environment
         echo ' Updating environment variables...'
         sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
+        sed -i \"s|DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g\" .env
         
         # Pull images
         echo ' Pulling latest container images...'
         export DOCKER_REGISTRY=$CI_REGISTRY_IMAGE
-        docker-compose -f docker-compose.prod.yml pull
+        docker compose -f docker-compose.prod.yml pull
         
         # Deploy with zero-downtime (rolling update)
         echo ' Deploying services (rolling update)...'
-        docker-compose -f docker-compose.prod.yml up -d --no-deps --build
+        docker compose -f docker-compose.prod.yml up -d --no-deps
+        
+        # Cleanup old images
+        docker image prune -f
         
         # Wait for stabilization
         echo ' Waiting for services to stabilize...'
