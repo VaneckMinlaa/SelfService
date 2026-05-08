@@ -120,24 +120,29 @@ deploy:staging:
   script:
     - |
       # Transfert des fichiers vers le Staging
-      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml Docker Scripts Nginx $STAGING_USER@$STAGING_HOST:$STAGING_DEPLOY_PATH/
+      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml .env.production Docker Scripts Nginx $STAGING_USER@$STAGING_HOST:$STAGING_DEPLOY_PATH/
 
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $STAGING_USER@$STAGING_HOST "
         set -e
         echo '=== Staging Deployment Started ==='
         cd $STAGING_DEPLOY_PATH
         
-        # Initialisation du .env si inexistant
-        [ -f .env ] || touch .env
+        # Initialisation du .env depuis le template
+        cp .env.production .env
 
-        # Update .env with new image tag
-        echo 'Updating environment variables...'
-        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG='${IMAGE_TAG}'|g' .env
+        # Injection dynamique de TOUTES les variables GitLab
+        echo 'Injecting GitLab CI variables...'
+        for var in IMAGE_TAG JWT_SECRET DB_PASSWORD RABBITMQ_USERNAME RABBITMQ_PASSWORD SMTP_USERNAME SMTP_PASSWORD BREVO_API_KEY STAGING_DOMAIN; do
+          val=\$(eval echo \"\\\$\$var\")
+          if [ ! -z \"\$val\" ]; then
+            sed -i \"s|^\${var}=.*|\${var}=\${val}|g\" .env
+          fi
+        done
         
         # Backup database
         echo 'Creating database backup...'
         chmod +x Scripts/*.sh
-        ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
+        ./Scripts/backup-prod.sh >> ./deploy.log 2>&1
         
         # Pull new images
         echo 'Pulling latest images...'
@@ -191,15 +196,26 @@ deploy:production:
   script:
     - |
       # Transfert des fichiers vers la Production
-      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml Docker Scripts Nginx $PRODUCTION_USER@$PRODUCTION_HOST:$PRODUCTION_DEPLOY_PATH/
+      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r docker-compose.prod.yml .env.production Docker Scripts Nginx $PRODUCTION_USER@$PRODUCTION_HOST:$PRODUCTION_DEPLOY_PATH/
 
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "
         set -e
         echo ' Production Deployment Started at '$(date)
         cd $PRODUCTION_DEPLOY_PATH
         
-        # Initialisation du .env si inexistant
-        [ -f .env ] || touch .env
+        # Initialisation du .env depuis le template
+        cp .env.production .env
+
+        # Injection dynamique de TOUTES les variables GitLab
+        echo ' Injecting GitLab CI variables into .env...'
+        for var in IMAGE_TAG JWT_SECRET DB_PASSWORD DB_USERNAME RABBITMQ_USERNAME RABBITMQ_PASSWORD SMTP_USERNAME SMTP_PASSWORD BREVO_API_KEY NOTIFICATION_FROM_EMAIL DOMAIN GRAFANA_USER GRAFANA_PASSWORD; do
+          # On récupère la valeur de la variable GitLab
+          val=\$(eval echo \"\\\$\$var\")
+          if [ ! -z \"\$val\" ]; then
+             # On remplace dans le fichier .env
+             sed -i \"s|^\${var}=.*|\${var}=\${val}|g\" .env
+          fi
+        done
 
         # Verify current state
         echo ' Verifying current deployment...'
@@ -208,13 +224,8 @@ deploy:production:
         # Backup database (CRITICAL)
         echo ' Creating database backup...'
         chmod +x Scripts/*.sh
-        ./Scripts/backup-prod.sh >> /var/log/banking/deploy.log 2>&1
+        ./Scripts/backup-prod.sh >> ./deploy.log 2>&1
         ls -lah /backups/banking/ | tail -5 || true
-        
-        # Update environment
-        echo ' Updating environment variables...'
-        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG='${IMAGE_TAG}'|g' .env
-        sed -i 's|DOMAIN=.*|DOMAIN='${PRODUCTION_DOMAIN}'|g' .env
         
         # Pull images
         echo ' Pulling latest container images...'
