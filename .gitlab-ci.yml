@@ -208,7 +208,10 @@ deploy:production:
 
         # Injection dynamique de TOUTES les variables GitLab
         echo ' Injecting GitLab CI variables into .env...'
-        for var in IMAGE_TAG JWT_SECRET DB_PASSWORD DB_USERNAME RABBITMQ_USERNAME RABBITMQ_PASSWORD SMTP_USERNAME SMTP_PASSWORD BREVO_API_KEY NOTIFICATION_FROM_EMAIL DOMAIN GRAFANA_USER GRAFANA_PASSWORD; do
+        # On force le domaine en premier
+        sed -i "s|^DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g" .env
+        
+        for var in IMAGE_TAG JWT_SECRET DB_PASSWORD DB_USERNAME RABBITMQ_USERNAME RABBITMQ_PASSWORD SMTP_USERNAME SMTP_PASSWORD BREVO_API_KEY NOTIFICATION_FROM_EMAIL GRAFANA_USER GRAFANA_PASSWORD; do
           # On récupère la valeur de la variable GitLab
           val=\$(eval echo \"\\\$\$var\")
           if [ ! -z \"\$val\" ]; then
