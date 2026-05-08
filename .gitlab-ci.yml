@@ -236,7 +236,6 @@ deploy:production:
       echo "Generating deploy script..."
       cat > deploy.sh << 'DEPLOY_SCRIPT'
       #!/bin/bash
-      set -e
       set -a
       source .env
       set +a
@@ -249,7 +248,23 @@ deploy:production:
       DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml pull
 
       echo "== Starting services =="
-      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d
+      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d || {
+        echo ""
+        echo "=========================================="
+        echo "DEPLOYMENT FAILED - Capturing debug logs"
+        echo "=========================================="
+        echo ""
+        echo "=== auth-service LOGS (last 80 lines) ==="
+        docker logs auth-service --tail 80 2>&1 || echo "auth-service container not found"
+        echo ""
+        echo "=== postgres-auth LOGS (last 30 lines) ==="
+        docker logs postgres-auth --tail 30 2>&1 || echo "postgres-auth container not found"
+        echo ""
+        echo "=== docker compose ps ==="
+        DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml ps 2>&1
+        echo "=========================================="
+        exit 1
+      }
 
       echo "== Cleanup old images =="
       docker image prune -f
