@@ -261,9 +261,18 @@ deploy:production:
 
       echo "== Starting services =="
       DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d || {
-        echo "FAILED! Inspecting logs..."
-        docker logs auth-service --tail 50
-        docker logs postgres-auth --tail 50
+        echo "=========================================="
+        echo "DEPLOYMENT FAILED - Analyzing containers"
+        echo "=========================================="
+        docker compose -f docker-compose.prod.yml ps
+        echo ""
+        echo "Capturing logs for unhealthy services..."
+        # On récupère les noms des services qui ne sont pas "Up" ou "healthy"
+        services=$(docker compose -f docker-compose.prod.yml ps --format "{{.Service}}" | xargs)
+        for service in $services; do
+          echo "--- Logs for $service ---"
+          docker compose -f docker-compose.prod.yml logs --tail 50 "$service"
+        done
         exit 1
       }
 
