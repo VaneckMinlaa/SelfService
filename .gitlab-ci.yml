@@ -198,39 +198,38 @@ deploy:production:
       # === ÉTAPE 1: Construction du .env dans GitLab CI ===
       echo "Building .env from GitLab CI variables..."
       printf 'JWT_SECRET="%s"\n' "${JWT_SECRET}" > .env
-      printf 'DB_USERNAME="%s"\n' "${DB_USERNAME}" >> .env
+      printf 'DB_USERNAME=%s\n' "${DB_USERNAME}" >> .env
       printf 'DB_PASSWORD="%s"\n' "${DB_PASSWORD}" >> .env
-      printf 'AUTH_DB_NAME="auth_db"\n' >> .env
-      printf 'ACCOUNT_DB_NAME="account_db"\n' >> .env
-      printf 'TRANSACTION_DB_NAME="transaction_db"\n' >> .env
-      printf 'RABBITMQ_HOST="rabbitmq"\n' >> .env
-      printf 'RABBITMQ_PORT="5672"\n' >> .env
-      printf 'RABBITMQ_USERNAME="%s"\n' "${RABBITMQ_USERNAME}" >> .env
+      printf 'AUTH_DB_NAME=auth_db\n' >> .env
+      printf 'ACCOUNT_DB_NAME=account_db\n' >> .env
+      printf 'TRANSACTION_DB_NAME=transaction_db\n' >> .env
+      printf 'RABBITMQ_HOST=rabbitmq\n' >> .env
+      printf 'RABBITMQ_PORT=5672\n' >> .env
+      printf 'RABBITMQ_USERNAME=%s\n' "${RABBITMQ_USERNAME}" >> .env
       printf 'RABBITMQ_PASSWORD="%s"\n' "${RABBITMQ_PASSWORD}" >> .env
-      printf 'SMTP_HOST="%s"\n' "${SMTP_HOST:-smtp-relay.brevo.com}" >> .env
-      printf 'SMTP_PORT="%s"\n' "${SMTP_PORT:-587}" >> .env
+      printf 'SMTP_HOST=%s\n' "${SMTP_HOST:-smtp-relay.brevo.com}" >> .env
+      printf 'SMTP_PORT=%s\n' "${SMTP_PORT:-587}" >> .env
       printf 'SMTP_USERNAME="%s"\n' "${SMTP_USERNAME}" >> .env
       printf 'SMTP_PASSWORD="%s"\n' "${SMTP_PASSWORD}" >> .env
       printf 'NOTIFICATION_FROM_EMAIL="%s"\n' "${NOTIFICATION_FROM_EMAIL}" >> .env
       printf 'BREVO_API_KEY="%s"\n' "${BREVO_API_KEY}" >> .env
-      printf 'AUTH_SERVICE_URL="http://auth-service:8081"\n' >> .env
-      printf 'ACCOUNT_SERVICE_URL="http://account-service:8082"\n' >> .env
-      printf 'TRANSACTION_SERVICE_URL="http://transaction-service:8083"\n' >> .env
-      printf 'DOCKER_REGISTRY="%s"\n' "${CI_REGISTRY_IMAGE}" >> .env
-      printf 'IMAGE_TAG="%s"\n' "${IMAGE_TAG}" >> .env
-      printf 'DOMAIN="%s"\n' "${PRODUCTION_DOMAIN}" >> .env
-      printf 'SESSION_SECURE="true"\n' >> .env
-      printf 'ENVIRONMENT="production"\n' >> .env
-      printf 'GRAFANA_USER="%s"\n' "${GRAFANA_USER:-admin}" >> .env
+      printf 'AUTH_SERVICE_URL=http://auth-service:8081\n' >> .env
+      printf 'ACCOUNT_SERVICE_URL=http://account-service:8082\n' >> .env
+      printf 'TRANSACTION_SERVICE_URL=http://transaction-service:8083\n' >> .env
+      printf 'DOCKER_REGISTRY=%s\n' "${CI_REGISTRY_IMAGE}" >> .env
+      printf 'IMAGE_TAG=%s\n' "${IMAGE_TAG}" >> .env
+      printf 'DOMAIN=%s\n' "${PRODUCTION_DOMAIN}" >> .env
+      printf 'SESSION_SECURE=true\n' >> .env
+      printf 'ENVIRONMENT=production\n' >> .env
+      printf 'GRAFANA_USER=%s\n' "${GRAFANA_USER:-admin}" >> .env
       printf 'GRAFANA_PASSWORD="%s"\n' "${GRAFANA_PASSWORD}" >> .env
-      printf 'LOG_LEVEL="WARN"\n' >> .env
+      printf 'LOG_LEVEL=WARN\n' >> .env
       echo ".env file built successfully."
 
       # === ÉTAPE 2b: Ajout des credentials registry dans .env ===
-      # CI_REGISTRY_USER et CI_REGISTRY_PASSWORD sont auto-injectés par GitLab CI
-      printf 'CI_DEPLOY_TOKEN_USERNAME="%s"\n' "${CI_REGISTRY_USER}" >> .env
+      printf 'CI_DEPLOY_TOKEN_USERNAME=%s\n' "${CI_REGISTRY_USER}" >> .env
       printf 'CI_DEPLOY_TOKEN_PASSWORD="%s"\n' "${CI_REGISTRY_PASSWORD}" >> .env
-      printf 'CI_REGISTRY_IMAGE="%s"\n' "${CI_REGISTRY_IMAGE}" >> .env
+      printf 'CI_REGISTRY_IMAGE=%s\n' "${CI_REGISTRY_IMAGE}" >> .env
 
       # === ÉTAPE 2c: Génération du script de déploiement ===
       echo "Generating deploy script..."
@@ -239,6 +238,12 @@ deploy:production:
       set -a
       source .env
       set +a
+
+      echo "== Current Configuration (Masked) =="
+      echo "User: $DB_USERNAME"
+      echo "Domain: $DOMAIN"
+      echo "Registry: $CI_REGISTRY_IMAGE"
+      echo "Image Tag: $IMAGE_TAG"
 
       echo "== Authenticating to GitLab Container Registry =="
       echo "$CI_DEPLOY_TOKEN_PASSWORD" | docker login registry.gitlab.com \
@@ -249,22 +254,15 @@ deploy:production:
 
       echo "== Starting services =="
       DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d || {
-        echo ""
-        echo "=========================================="
-        echo "DEPLOYMENT FAILED - Capturing debug logs"
-        echo "=========================================="
-        echo ""
-        echo "=== auth-service LOGS (last 80 lines) ==="
-        docker logs auth-service --tail 80 2>&1 || echo "auth-service container not found"
-        echo ""
-        echo "=== postgres-auth LOGS (last 30 lines) ==="
-        docker logs postgres-auth --tail 30 2>&1 || echo "postgres-auth container not found"
-        echo ""
-        echo "=== docker compose ps ==="
-        DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml ps 2>&1
-        echo "=========================================="
+        echo "FAILED! Inspecting logs..."
+        docker logs auth-service --tail 50
+        docker logs postgres-auth --tail 50
         exit 1
       }
+
+      docker logout registry.gitlab.com
+      echo "Deployment complete at $(date)!"
+      DEPLOY_SCRIPT
 
       echo "== Cleanup old images =="
       docker image prune -f
