@@ -119,7 +119,7 @@ deploy:staging:
     - ssh-keyscan -H $STAGING_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      ssh $STAGING_USER@$STAGING_HOST "
+      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $STAGING_USER@$STAGING_HOST "
         set -e
         echo '=== Staging Deployment Started ==='
         cd $STAGING_DEPLOY_PATH
@@ -183,7 +183,7 @@ deploy:production:
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      ssh $PRODUCTION_USER@$PRODUCTION_HOST "
+      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "
         set -e
         echo ' Production Deployment Started at '$(date)
         cd $PRODUCTION_DEPLOY_PATH
