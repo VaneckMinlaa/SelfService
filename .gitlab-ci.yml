@@ -25,12 +25,10 @@ stages:
 
 lint:docker-compose:
   stage: lint
-  image: ubuntu:22.04
-  before_script:
-    - apt-get update && apt-get install -y docker-compose-plugin
+  image: docker:24
   script:
     - echo "Validating docker-compose files..."
-    - docker-compose -f docker-compose.prod.yml config > /dev/null
+    - docker compose -f docker-compose.prod.yml config > /dev/null
     - echo "✓ docker-compose.prod.yml valid"
   allow_failure: false
   only:
