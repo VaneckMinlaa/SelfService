@@ -227,8 +227,9 @@ deploy:production:
       echo ".env file built successfully."
 
       # === ÉTAPE 2b: Ajout des credentials registry dans .env ===
-      printf "CI_DEPLOY_TOKEN_USERNAME='%s'\n" "${CI_DEPLOY_TOKEN_USERNAME}" >> .env
-      printf "CI_DEPLOY_TOKEN_PASSWORD='%s'\n" "${CI_DEPLOY_TOKEN_PASSWORD}" >> .env
+      # CI_REGISTRY_USER et CI_REGISTRY_PASSWORD sont auto-injectés par GitLab CI
+      printf "CI_DEPLOY_TOKEN_USERNAME='%s'\n" "${CI_REGISTRY_USER}" >> .env
+      printf "CI_DEPLOY_TOKEN_PASSWORD='%s'\n" "${CI_REGISTRY_PASSWORD}" >> .env
       printf "CI_REGISTRY_IMAGE='%s'\n" "${CI_REGISTRY_IMAGE}" >> .env
 
       # === ÉTAPE 2c: Génération du script de déploiement ===
