@@ -195,6 +195,13 @@ deploy:production:
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
+      # === ÉTAPE 0: Vérification des variables critiques ===
+      if [ -z "${DB_USERNAME}" ] || [ -z "${DB_PASSWORD}" ]; then
+        echo "ERROR: DB_USERNAME or DB_PASSWORD is not set in GitLab Variables!"
+        echo "Please go to Settings > CI/CD > Variables and add them."
+        exit 1
+      fi
+
       # === ÉTAPE 1: Construction du .env dans GitLab CI ===
       echo "Building .env from GitLab CI variables..."
       printf 'JWT_SECRET="%s"\n' "${JWT_SECRET}" > .env
