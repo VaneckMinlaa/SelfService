@@ -12,10 +12,10 @@ function request(path, options = {}) {
   });
 }
 
-export async function login(username, password) {
+export async function login(email, password) {
   const res = await request('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

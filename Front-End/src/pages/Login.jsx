@@ -4,7 +4,7 @@ import { login } from '../api/client'
 import './Login.css'
 
 export default function Login() {
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -15,7 +15,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(username, password)
+      await login(email, password)
       navigate('/accounts', { replace: true })
     } catch (err) {
       setError(err.message || 'Identifiants incorrects')
@@ -32,12 +32,12 @@ export default function Login() {
         <form onSubmit={handleSubmit}>
           {error && <div className="login-error">{error}</div>}
           <label>
-            Identifiant
+            Email
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
             />
           </label>
@@ -55,7 +55,7 @@ export default function Login() {
             {loading ? 'Connexion…' : 'Se connecter'}
           </button>
         </form>
-        <p className="demo-hint">Démo : alice / password ou bob / password</p>
+        <p className="demo-hint">Démo : dongmomintidem@gmail.com / password123</p>
       </div>
     </div>
   )

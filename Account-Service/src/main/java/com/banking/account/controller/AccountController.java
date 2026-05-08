@@ -67,6 +67,7 @@ public class AccountController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
     }
+    @GetMapping("/health")
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Account Service is healthy");
     }

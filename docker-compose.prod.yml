@@ -1,15 +1,7 @@
 version: '3.8'
 
-# ============================================
-# PRODUCTION DOCKER COMPOSE
-# Pour VPS: utiliser des images pré-construites
-# Les volumes sont persistants pour données
-# ============================================
-
 services:
-  # ============================================
   # DATABASES (One per service)
-  # ============================================
 
   postgres-auth:
     image: postgres:15-alpine
@@ -84,9 +76,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================
   # MESSAGE BROKER
-  # ============================================
 
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
@@ -111,9 +101,19 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================
   # MICROSERVICES - Images pré-construites depuis registry
-  # ============================================
+
+  frontend:
+    image: ${DOCKER_REGISTRY}/frontend:${IMAGE_TAG:-latest}
+    container_name: frontend
+    restart: always
+    networks:
+      - banking-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   auth-service:
     image: ${DOCKER_REGISTRY}/auth-service:${IMAGE_TAG:-latest}
@@ -255,9 +255,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================
   # API GATEWAY (Nginx) - Let's Encrypt HTTPS
-  # ============================================
 
   nginx:
     image: nginx:alpine
@@ -288,9 +286,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================
   # CERTBOT - Renouvellement automatique Let's Encrypt
-  # ============================================
 
   certbot:
     image: certbot/certbot
@@ -303,9 +299,44 @@ services:
     networks:
       - banking-network
 
-  # ============================================
+  # EXPORTERS (Monitoring)
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${DB_USERNAME}:${DB_PASSWORD}@postgres-auth:5432/auth_db?sslmode=disable"
+    networks:
+      - banking-network
+    restart: always
+
+  rabbitmq-exporter:
+    image: kbudde/rabbitmq-exporter
+    container_name: rabbitmq-exporter
+    environment:
+      RABBIT_URL: http://rabbitmq:15672
+      RABBIT_USER: ${RABBITMQ_USERNAME}
+      RABBIT_PASSWORD: ${RABBITMQ_PASSWORD}
+    networks:
+      - banking-network
+    restart: always
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - banking-network
+    restart: always
+
   # OBSERVABILITY (Monitoring - Production)
-  # ============================================
 
   prometheus:
     image: prom/prometheus:v2.45.0
@@ -351,9 +382,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# ============================================
 # NAMED VOLUMES
-# ============================================
 
 volumes:
   postgres-auth-data:
@@ -371,9 +400,7 @@ volumes:
   nginx-logs:
     driver: local
 
-# ============================================
 # NETWORKS
-# ============================================
 
 networks:
   banking-network:
