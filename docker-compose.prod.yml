@@ -14,7 +14,7 @@ services:
       - postgres-auth-data:/var/lib/postgresql/data
       - ./Scripts/backup-db.sh:/usr/local/bin/backup-db.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin} -d ${AUTH_DB_NAME:-auth_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,7 +38,7 @@ services:
     volumes:
       - postgres-account-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin} -d ${ACCOUNT_DB_NAME:-account_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,7 +62,7 @@ services:
     volumes:
       - postgres-transaction-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bankadmin} -d ${TRANSACTION_DB_NAME:-transaction_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
