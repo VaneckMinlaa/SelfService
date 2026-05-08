@@ -234,18 +234,20 @@ deploy:production:
 
       # === ÉTAPE 3: Exécution des commandes Docker via SSH ===
       echo "Launching deployment via SSH..."
-      DEPLOY_PATH="${PRODUCTION_DEPLOY_PATH}"
-      REGISTRY="${CI_REGISTRY_IMAGE}"
 
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
         ${PRODUCTION_USER}@${PRODUCTION_HOST} \
         "cd ${PRODUCTION_DEPLOY_PATH} && \
          echo 'Deployment started at '$(date) && \
          chmod +x Scripts/*.sh && \
-         docker compose -f docker-compose.prod.yml ps || true && \
+         echo '== Authenticating to GitLab registry ==' && \
+         echo '${CI_DEPLOY_TOKEN_PASSWORD}' | docker login registry.gitlab.com -u ${CI_DEPLOY_TOKEN_USERNAME} --password-stdin && \
+         echo '== Pulling images ==' && \
          DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml pull && \
+         echo '== Starting services ==' && \
          DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml up -d && \
          docker image prune -f && \
+         docker logout registry.gitlab.com && \
          echo 'Deployment complete!'"
   needs:
     - build:auth-service
