@@ -226,29 +226,49 @@ deploy:production:
       printf "LOG_LEVEL=WARN\n" >> .env
       echo ".env file built successfully."
 
-      # === ÉTAPE 2: Transfert des fichiers vers le VPS ===
+      # === ÉTAPE 2b: Ajout des credentials registry dans .env ===
+      printf "CI_DEPLOY_TOKEN_USERNAME=%s\n" "${CI_DEPLOY_TOKEN_USERNAME}" >> .env
+      printf "CI_DEPLOY_TOKEN_PASSWORD=%s\n" "${CI_DEPLOY_TOKEN_PASSWORD}" >> .env
+      printf "CI_REGISTRY_IMAGE=%s\n" "${CI_REGISTRY_IMAGE}" >> .env
+
+      # === ÉTAPE 2c: Génération du script de déploiement ===
+      echo "Generating deploy script..."
+      cat > deploy.sh << 'DEPLOY_SCRIPT'
+      #!/bin/bash
+      set -e
+      set -a
+      source .env
+      set +a
+
+      echo "== Authenticating to GitLab Container Registry =="
+      echo "$CI_DEPLOY_TOKEN_PASSWORD" | docker login registry.gitlab.com \
+        -u "$CI_DEPLOY_TOKEN_USERNAME" --password-stdin
+
+      echo "== Pulling latest images =="
+      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml pull
+
+      echo "== Starting services =="
+      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d
+
+      echo "== Cleanup old images =="
+      docker image prune -f
+
+      docker logout registry.gitlab.com
+      echo "Deployment complete at $(date)!"
+      DEPLOY_SCRIPT
+      chmod +x deploy.sh
+
+      # === ÉTAPE 3: Transfert des fichiers vers le VPS ===
       echo "Transferring files to VPS..."
       scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r \
-        .env docker-compose.prod.yml Docker Scripts Nginx \
+        .env deploy.sh docker-compose.prod.yml Docker Scripts Nginx \
         ${PRODUCTION_USER}@${PRODUCTION_HOST}:${PRODUCTION_DEPLOY_PATH}/
 
-      # === ÉTAPE 3: Exécution des commandes Docker via SSH ===
+      # === ÉTAPE 4: Exécution du script de déploiement sur le VPS ===
       echo "Launching deployment via SSH..."
-
       ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
         ${PRODUCTION_USER}@${PRODUCTION_HOST} \
-        "cd ${PRODUCTION_DEPLOY_PATH} && \
-         echo 'Deployment started at '$(date) && \
-         chmod +x Scripts/*.sh && \
-         echo '== Authenticating to GitLab registry ==' && \
-         echo '${CI_DEPLOY_TOKEN_PASSWORD}' | docker login registry.gitlab.com -u ${CI_DEPLOY_TOKEN_USERNAME} --password-stdin && \
-         echo '== Pulling images ==' && \
-         DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml pull && \
-         echo '== Starting services ==' && \
-         DOCKER_REGISTRY=${CI_REGISTRY_IMAGE} docker compose -f docker-compose.prod.yml up -d && \
-         docker image prune -f && \
-         docker logout registry.gitlab.com && \
-         echo 'Deployment complete!'"
+        "cd ${PRODUCTION_DEPLOY_PATH} && chmod +x Scripts/*.sh && bash deploy.sh"
   needs:
     - build:auth-service
     - build:account-service
