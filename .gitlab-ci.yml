@@ -132,7 +132,7 @@ deploy:staging:
 
         # Update .env with new image tag
         echo 'Updating environment variables...'
-        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
+        sed -i "s|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g" .env
         
         # Backup database
         echo 'Creating database backup...'
@@ -213,8 +213,8 @@ deploy:production:
         
         # Update environment
         echo ' Updating environment variables...'
-        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g' .env
-        sed -i \"s|DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g\" .env
+        sed -i "s|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g" .env
+        sed -i "s|DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g" .env
         
         # Pull images
         echo ' Pulling latest container images...'
