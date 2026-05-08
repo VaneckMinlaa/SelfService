@@ -132,7 +132,7 @@ deploy:staging:
 
         # Update .env with new image tag
         echo 'Updating environment variables...'
-        sed -i "s|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g" .env
+        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG='${IMAGE_TAG}'|g' .env
         
         # Backup database
         echo 'Creating database backup...'
@@ -213,8 +213,8 @@ deploy:production:
         
         # Update environment
         echo ' Updating environment variables...'
-        sed -i "s|IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|g" .env
-        sed -i "s|DOMAIN=.*|DOMAIN=$PRODUCTION_DOMAIN|g" .env
+        sed -i 's|IMAGE_TAG=.*|IMAGE_TAG='${IMAGE_TAG}'|g' .env
+        sed -i 's|DOMAIN=.*|DOMAIN='${PRODUCTION_DOMAIN}'|g' .env
         
         # Pull images
         echo ' Pulling latest container images...'
@@ -282,13 +282,16 @@ rollback:production:
     name: production
   before_script:
     - apk add --no-cache openssh-client bash
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$PRODUCTION_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
     - eval $(ssh-agent -s)
-    - echo "$PRODUCTION_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-add ~/.ssh/id_rsa
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      ssh $PRODUCTION_USER@$PRODUCTION_HOST "
+      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "
         echo ' Rollback Initiated'
         cd $PRODUCTION_DEPLOY_PATH
         
@@ -304,21 +307,22 @@ rollback:production:
         
         # Stop services
         echo ' Stopping services...'
-        docker-compose -f docker-compose.prod.yml down
+        docker compose -f docker-compose.prod.yml down
         
         # Restore database
         echo ' Restoring database...'
+        chmod +x Scripts/*.sh
         ./Scripts/restore-db.sh all /backups/banking/\$LATEST_BACKUP
         
         # Start services
         echo ' Restarting services...'
-        docker-compose -f docker-compose.prod.yml up -d
+        docker compose -f docker-compose.prod.yml up -d
         
         sleep 30
         
         # Verify
         echo ' Rollback Complete'
-        docker-compose -f docker-compose.prod.yml ps
+        docker compose -f docker-compose.prod.yml ps
       "
   only:
     - main
