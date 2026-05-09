@@ -210,6 +210,10 @@ deploy:production:
       echo "== Configuring Nginx Domain =="
       sed -i "s/DOMAIN/$DOMAIN/g" Docker/nginx-prod.conf
 
+      echo "== Cleaning up legacy Nginx configs =="
+      # Supprimer tous les fichiers .conf dans Docker/ SAUF nginx-prod.conf
+      find Docker/ -maxdepth 1 -name "*.conf" ! -name "nginx-prod.conf" -delete
+
       echo "== Checking SSL Certificates =="
       if [ ! -f "./certbot/conf/live/$DOMAIN/fullchain.pem" ]; then
         echo "Creating temporary dummy certificate to start Nginx..."
