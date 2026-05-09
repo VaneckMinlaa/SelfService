@@ -102,6 +102,8 @@ services:
   # MICROSERVICES - Images pré-construites depuis registry
 
   frontend:
+    build:
+      context: ./Front-End
     image: ${DOCKER_REGISTRY}/frontend:${IMAGE_TAG:-latest}
     container_name: frontend
     restart: always
@@ -114,6 +116,8 @@ services:
         max-file: "3"
 
   auth-service:
+    build:
+      context: ./Auth-Service
     image: ${DOCKER_REGISTRY}/auth-service:${IMAGE_TAG:-latest}
     container_name: auth-service
     restart: always
@@ -147,6 +151,8 @@ services:
         max-file: "3"
 
   account-service:
+    build:
+      context: ./Account-Service
     image: ${DOCKER_REGISTRY}/account-service:${IMAGE_TAG:-latest}
     container_name: account-service
     restart: always
@@ -183,6 +189,8 @@ services:
         max-file: "3"
 
   transaction-service:
+    build:
+      context: ./Transaction-Service
     image: ${DOCKER_REGISTRY}/transaction-service:${IMAGE_TAG:-latest}
     container_name: transaction-service
     restart: always
@@ -228,6 +236,8 @@ services:
         max-file: "3"
 
   notification-service:
+    build:
+      context: ./Notification-Service
     image: ${DOCKER_REGISTRY}/notification-service:${IMAGE_TAG:-latest}
     container_name: notification-service
     restart: always
