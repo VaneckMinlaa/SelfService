@@ -258,7 +258,7 @@ deploy:production:
       echo "== DIAGNOSTIC : STATUS DES CONTENEURS =="
       docker compose -f docker-compose.prod.yml ps
       echo "== DIAGNOSTIC : LOGS NGINX =="
-      docker compose -f docker-compose.prod.yml logs --tail 50 nginx-gateway
+      docker logs --tail 50 nginx-gateway || true
 
       docker logout registry.gitlab.com
       echo "== Cleanup old images =="
