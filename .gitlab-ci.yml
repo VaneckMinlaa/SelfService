@@ -207,6 +207,20 @@ deploy:production:
       echo "Registry: $CI_REGISTRY_IMAGE"
       echo "Image Tag: $IMAGE_TAG"
 
+      echo "== Configuring Nginx Domain =="
+      sed -i "s/DOMAIN/$DOMAIN/g" Docker/nginx-prod.conf
+
+      echo "== Checking SSL Certificates =="
+      if [ ! -f "./certbot/conf/live/$DOMAIN/fullchain.pem" ]; then
+        echo "Creating temporary dummy certificate to start Nginx..."
+        mkdir -p "./certbot/conf/live/$DOMAIN"
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+          -keyout "./certbot/conf/live/$DOMAIN/privkey.pem" \
+          -out "./certbot/conf/live/$DOMAIN/fullchain.pem" \
+          -subj "/CN=$DOMAIN"
+        NEEDS_REAL_CERT="true"
+      fi
+
       echo "== Authenticating to GitLab Container Registry =="
       echo "$CI_DEPLOY_TOKEN_PASSWORD" | docker login registry.gitlab.com \
         -u "$CI_DEPLOY_TOKEN_USERNAME" --password-stdin
@@ -230,6 +244,15 @@ deploy:production:
         done
         exit 1
       }
+
+      if [ "$NEEDS_REAL_CERT" = "true" ]; then
+        echo "== Waiting for Nginx to initialize =="
+        sleep 10
+        echo "== Requesting REAL Let's Encrypt Certificate =="
+        docker compose -f docker-compose.prod.yml exec -T certbot certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $NOTIFICATION_FROM_EMAIL --rsa-key-size 4096 --agree-tos --force-renewal --non-interactive
+        echo "== Reloading Nginx with new certificate =="
+        docker compose -f docker-compose.prod.yml exec -T nginx-gateway nginx -s reload
+      fi
 
       docker logout registry.gitlab.com
       echo "== Cleanup old images =="
