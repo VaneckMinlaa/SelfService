@@ -57,6 +57,8 @@ public class AuthService {
             throw new RuntimeException("Identifiants invalides");
         }
 
+        
+
         String token = jwtProvider.generateToken(user.getId(), user.getEmail());
 
         auditService.log(user.getId(), "LOGIN", clientIp, true,

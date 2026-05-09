@@ -342,6 +342,19 @@ services:
       - banking-network
     restart: always
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: cadvisor
+    restart: always
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - banking-network
+
   # OBSERVABILITY (Monitoring - Production)
 
   prometheus:

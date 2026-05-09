@@ -25,6 +25,34 @@ public class TransactionController {
     private final TransactionService transactionService;
     private final JwtExtractor jwtExtractor;
 
+    @PostMapping("/deposit")
+    public ResponseEntity<TransactionDTO> deposit(@RequestBody Map<String, Object> request, HttpServletRequest httpRequest) {
+        try {
+            Long userId = jwtExtractor.extractUserId(httpRequest);
+            Long accountId = Long.valueOf(request.get("accountId").toString());
+            BigDecimal amount = new BigDecimal(request.get("amount").toString());
+            TransactionDTO transaction = transactionService.deposit(accountId, amount, userId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
+        } catch (Exception e) {
+            log.error("Error processing deposit: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
+    @PostMapping("/withdraw")
+    public ResponseEntity<TransactionDTO> withdraw(@RequestBody Map<String, Object> request, HttpServletRequest httpRequest) {
+        try {
+            Long userId = jwtExtractor.extractUserId(httpRequest);
+            Long accountId = Long.valueOf(request.get("accountId").toString());
+            BigDecimal amount = new BigDecimal(request.get("amount").toString());
+            TransactionDTO transaction = transactionService.withdraw(accountId, amount, userId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(transaction);
+        } catch (Exception e) {
+            log.error("Error processing withdrawal: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+    }
+
     @PostMapping("/transfer")
     public ResponseEntity<TransactionDTO> transfer(
             @RequestBody Map<String, Object> request,
@@ -32,8 +60,8 @@ public class TransactionController {
         try {
             Long userId = jwtExtractor.extractUserId(httpRequest);
 
-            Long fromAccountId = ((Number) request.get("fromAccountId")).longValue();
-            Long toAccountId = ((Number) request.get("toAccountId")).longValue();
+            Long fromAccountId = Long.valueOf(request.get("fromAccountId").toString());
+            Long toAccountId = Long.valueOf(request.get("toAccountId").toString());
             BigDecimal amount = new BigDecimal(request.get("amount").toString());
             String description = (String) request.getOrDefault("description", "");
 
@@ -47,15 +75,15 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<Page<TransactionDTO>> getTransactions(
+            @RequestParam Long accountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             HttpServletRequest request) {
         try {
             Long userId = jwtExtractor.extractUserId(request);
             Pageable pageable = PageRequest.of(page, size);
-            // Note: In real system, get accountId from request param or path
-            // For demo, we'll just return empty page
-            return ResponseEntity.ok(Page.empty());
+            Page<TransactionDTO> transactions = transactionService.getAccountTransactions(accountId, pageable);
+            return ResponseEntity.ok(transactions);
         } catch (Exception e) {
             log.error("Error fetching transactions: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();

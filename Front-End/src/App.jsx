@@ -4,8 +4,11 @@ import { getMe } from './api/client'
 import Login from './pages/Login'
 import Accounts from './pages/Accounts'
 import AccountDetail from './pages/AccountDetail'
+import Transactions from './pages/Transactions'
+import Transfer from './pages/Transfer'
+import Layout from './components/Layout'
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, theme, toggleTheme }) {
   const [checking, setChecking] = useState(true)
   const [authenticated, setAuthenticated] = useState(false)
 
@@ -18,10 +21,21 @@ function ProtectedRoute({ children }) {
 
   if (checking) return <div className="page-loading">Vérification de la session…</div>
   if (!authenticated) return <Navigate to="/login" replace />
-  return children
+  return <Layout theme={theme} toggleTheme={toggleTheme}>{children}</Layout>
 }
 
 export default function App() {
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
   return (
     <BrowserRouter>
       <Routes>
@@ -29,7 +43,7 @@ export default function App() {
         <Route
           path="/accounts"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
               <Accounts />
             </ProtectedRoute>
           }
@@ -37,8 +51,24 @@ export default function App() {
         <Route
           path="/accounts/:id"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
               <AccountDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transactions"
+          element={
+            <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
+              <Transactions />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transfer"
+          element={
+            <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
+              <Transfer />
             </ProtectedRoute>
           }
         />

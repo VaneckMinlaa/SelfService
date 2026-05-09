@@ -46,6 +46,38 @@ public class AccountController {
         }
     }
 
+    @GetMapping("/number/{accountNumber}")
+    public ResponseEntity<AccountDTO> getAccountByNumber(@PathVariable String accountNumber) {
+        try {
+            AccountDTO account = accountService.getAccountByNumber(accountNumber);
+            return ResponseEntity.ok(account);
+        } catch (Exception e) {
+            log.error("Error fetching account by number: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @GetMapping("/internal/{id}")
+    public ResponseEntity<AccountDTO> getAccountInternal(@PathVariable Long id) {
+        try {
+            com.banking.account.entity.Account account = accountService.getAccountById(id);
+            AccountDTO dto = AccountDTO.builder()
+                    .id(account.getId())
+                    .userId(account.getUserId())
+                    .accountNumber(account.getAccountNumber())
+                    .accountType(account.getAccountType())
+                    .balance(account.getBalance())
+                    .currency(account.getCurrency())
+                    .isActive(account.getIsActive())
+                    .createdAt(account.getCreatedAt())
+                    .build();
+            return ResponseEntity.ok(dto);
+        } catch (Exception e) {
+            log.error("Error fetching account internally: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
     @PutMapping("/{id}/debit")
     public ResponseEntity<Void> debitAccount(@PathVariable Long id, @RequestParam java.math.BigDecimal amount, @RequestParam Long userId) {
         try {

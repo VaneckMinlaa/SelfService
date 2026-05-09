@@ -86,4 +86,10 @@ public class AccountService {
         account.setBalance(account.getBalance().add(amount));
         accountRepository.save(account);
     }
+
+    public AccountDTO getAccountByNumber(String accountNumber) {
+        Account account = accountRepository.findByAccountNumber(accountNumber)
+                .orElseThrow(() -> new RuntimeException("Account with number " + accountNumber + " not found"));
+        return convertToDTO(account);
+    }
 }

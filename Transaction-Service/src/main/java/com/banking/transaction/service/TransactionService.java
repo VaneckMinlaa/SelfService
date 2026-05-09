@@ -28,6 +28,65 @@ public class TransactionService {
     private final RestTemplate restTemplate;
 
     @Transactional
+    public TransactionDTO deposit(Long accountId, BigDecimal amount, Long userId) {
+        log.debug("Deposit initiated: account {}, amount {}", accountId, amount);
+        String accountServiceUrl = System.getenv().getOrDefault("ACCOUNT_SERVICE_URL", "http://localhost:8082");
+
+        restTemplate.exchange(
+                accountServiceUrl + "/api/accounts/" + accountId + "/credit?amount=" + amount,
+                org.springframework.http.HttpMethod.PUT, null, Void.class);
+
+        Transaction transaction = new Transaction();
+        transaction.setToAccountId(accountId);
+        transaction.setAmount(amount);
+        transaction.setTransactionType("DEPOSIT");
+        transaction.setDescription("Dépôt sur compte");
+        transaction.setStatus("COMPLETED");
+        transaction.setCompletedAt(LocalDateTime.now());
+        Transaction saved = transactionRepository.save(transaction);
+
+        TransferEvent event = new TransferEvent();
+        event.setTransactionId(saved.getId());
+        event.setToUserId(userId);
+        event.setToAccountId(accountId);
+        event.setAmount(amount);
+        event.setDescription("Dépôt effectué");
+        event.setTimestamp(LocalDateTime.now());
+        transferEventProducer.publishTransferCompleted(event);
+
+        return convertToDTO(saved);
+    }
+
+    @Transactional
+    public TransactionDTO withdraw(Long accountId, BigDecimal amount, Long userId) {
+        log.debug("Withdrawal initiated: account {}, amount {}", accountId, amount);
+        String accountServiceUrl = System.getenv().getOrDefault("ACCOUNT_SERVICE_URL", "http://localhost:8082");
+
+        restTemplate.exchange(
+                accountServiceUrl + "/api/accounts/" + accountId + "/debit?amount=" + amount + "&userId=" + userId,
+                org.springframework.http.HttpMethod.PUT, null, Void.class);
+
+        Transaction transaction = new Transaction();
+        transaction.setFromAccountId(accountId);
+        transaction.setAmount(amount.negate());
+        transaction.setTransactionType("WITHDRAWAL");
+        transaction.setDescription("Retrait d'argent");
+        transaction.setStatus("COMPLETED");
+        transaction.setCompletedAt(LocalDateTime.now());
+        Transaction saved = transactionRepository.save(transaction);
+
+        TransferEvent event = new TransferEvent();
+        event.setTransactionId(saved.getId());
+        event.setFromUserId(userId);
+        event.setFromAccountId(accountId);
+        event.setAmount(amount.negate());
+        event.setDescription("Retrait effectué");
+        event.setTimestamp(LocalDateTime.now());
+        transferEventProducer.publishTransferCompleted(event);
+
+        return convertToDTO(saved);
+    }
+
     public TransactionDTO transfer(Long fromAccountId, Long toAccountId, BigDecimal amount,
                                    String description, Long userId) {
         log.debug("Transfer initiated: from {} to {}, amount {}", fromAccountId, toAccountId, amount);
@@ -43,7 +102,7 @@ public class TransactionService {
 
         String accountServiceUrl = System.getenv().getOrDefault("ACCOUNT_SERVICE_URL", "http://localhost:8082");
 
-        // Debit source account
+        // 1. Debit source account
         org.springframework.http.ResponseEntity<Void> debitResponse = restTemplate.exchange(
                 accountServiceUrl + "/api/accounts/" + fromAccountId + "/debit?amount=" + amount + "&userId=" + userId,
                 org.springframework.http.HttpMethod.PUT,
@@ -55,7 +114,7 @@ public class TransactionService {
             throw new RuntimeException("Erreur lors du debit du compte source");
         }
 
-        // Credit destination account
+        // 2. Credit destination account
         org.springframework.http.ResponseEntity<Void> creditResponse = restTemplate.exchange(
                 accountServiceUrl + "/api/accounts/" + toAccountId + "/credit?amount=" + amount,
                 org.springframework.http.HttpMethod.PUT,
@@ -65,6 +124,20 @@ public class TransactionService {
 
         if (!creditResponse.getStatusCode().is2xxSuccessful()) {
             throw new RuntimeException("Erreur lors du credit du compte destination");
+        }
+
+        // 3. Fetch destination account info to get toUserId for notification
+        Long toUserId = null;
+        try {
+            org.springframework.http.ResponseEntity<Map> accountResponse = restTemplate.getForEntity(
+                    accountServiceUrl + "/api/accounts/internal/" + toAccountId,
+                    Map.class
+            );
+            if (accountResponse.getStatusCode().is2xxSuccessful() && accountResponse.getBody() != null) {
+                toUserId = ((Number) accountResponse.getBody().get("userId")).longValue();
+            }
+        } catch (Exception e) {
+            log.warn("Could not fetch destination user ID for notification: {}", e.getMessage());
         }
 
         Transaction transaction = new Transaction();
@@ -78,9 +151,11 @@ public class TransactionService {
 
         Transaction savedTransaction = transactionRepository.save(transaction);
 
-        // Publish event for notification service
+        // 4. Publish event for notification service
         TransferEvent event = new TransferEvent();
         event.setTransactionId(savedTransaction.getId());
+        event.setFromUserId(userId);
+        event.setToUserId(toUserId);
         event.setFromAccountId(fromAccountId);
         event.setToAccountId(toAccountId);
         event.setAmount(amount);
@@ -89,14 +164,29 @@ public class TransactionService {
 
         transferEventProducer.publishTransferCompleted(event);
 
+        // 5. Log to Audit Trail
+        try {
+            String authServiceUrl = System.getenv().getOrDefault("AUTH_SERVICE_URL", "http://localhost:8081");
+            String details = String.format("Virement de %s XAF du compte %d vers le compte %d. Motif: %s", 
+                amount.toString(), fromAccountId, toAccountId, description);
+            
+            restTemplate.postForEntity(
+                authServiceUrl + "/api/auth/audit/log?userId=" + userId + 
+                "&action=TRANSFER&ipAddress=INTERNAL&success=true&details=" + details,
+                null, Void.class
+            );
+        } catch (Exception e) {
+            log.warn("Failed to send audit log for transfer: {}", e.getMessage());
+        }
+
         log.info("Transfer completed: transaction {}", savedTransaction.getId());
 
         return convertToDTO(savedTransaction);
     }
 
     public Page<TransactionDTO> getAccountTransactions(Long accountId, Pageable pageable) {
-        log.debug("Fetching transactions for account: {}", accountId);
-        Page<Transaction> transactions = transactionRepository.findByFromAccountIdOrderByCreatedAtDesc(accountId, pageable);
+        log.debug("Fetching all transactions for account: {}", accountId);
+        Page<Transaction> transactions = transactionRepository.findByFromAccountIdOrToAccountIdOrderByCreatedAtDesc(accountId, accountId, pageable);
         return transactions.map(this::convertToDTO);
     }
 

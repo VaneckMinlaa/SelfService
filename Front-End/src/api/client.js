@@ -58,8 +58,42 @@ export async function getAccount(id) {
   return res.json();
 }
 
+export async function getAccountByNumber(accountNumber) {
+  const res = await request(`/api/accounts/number/${accountNumber}`);
+  if (!res.ok) throw new Error('Compte destinataire introuvable');
+  return res.json();
+}
+
 export async function getTransactions(accountId) {
-  const res = await request(`/api/accounts/${accountId}/transactions`);
+  // Try both possible endpoints (some implementations use /api/transactions?accountId=X)
+  const res = await request(`/api/transactions?accountId=${accountId}`);
   if (!res.ok) throw new Error('Impossible de charger les transactions');
+  return res.json();
+}
+
+export async function creditAccount(id, amount) {
+  const res = await request('/api/transactions/deposit', {
+    method: 'POST',
+    body: JSON.stringify({ accountId: id, amount })
+  });
+  if (!res.ok) throw new Error('Erreur lors du dépôt');
+  return res.json();
+}
+
+export async function debitAccount(id, amount, userId) {
+  const res = await request('/api/transactions/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({ accountId: id, amount })
+  });
+  if (!res.ok) throw new Error('Erreur lors du retrait');
+  return res.json();
+}
+
+export async function transferMoney(fromAccountId, toAccountId, amount, description) {
+  const res = await request('/api/transactions/transfer', {
+    method: 'POST',
+    body: JSON.stringify({ fromAccountId, toAccountId, amount, description })
+  });
+  if (!res.ok) throw new Error('Erreur lors du virement');
   return res.json();
 }

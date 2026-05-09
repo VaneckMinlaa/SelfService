@@ -246,6 +246,7 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--web.external-url=/prometheus/'
     ports:
       - "9090:9090"
     networks:
@@ -272,6 +273,9 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_DOMAIN=self-services.duckdns.org
+      - GF_SERVER_ROOT_URL=https://self-services.duckdns.org/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
     ports:
       - "3000:3000"
     volumes:
