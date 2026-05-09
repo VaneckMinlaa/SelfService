@@ -33,20 +33,27 @@ public class AuthService {
      * @throws RuntimeException Si les identifiants sont invalides
      */
     public AuthResponse login(LoginRequest request, String clientIp) {
-        log.debug("Tentative de connexion pour l'email : {}", request.getEmail());
+        String email = request.getEmail().trim().toLowerCase();
+        String rawPassword = request.getPassword().trim();
+        
+        log.info("Tentative de connexion pour l'email : {}", email);
 
-        User user = userRepository.findByEmail(request.getEmail())
+        User user = userRepository.findByEmail(email)
                 .orElse(null);
 
         if (user == null || !user.getIsActive()) {
             auditService.log(null, "FAILED_LOGIN", clientIp, false,
-                    "Utilisateur non trouvé ou inactif: " + request.getEmail());
+                    "Utilisateur non trouvé ou inactif: " + email);
             throw new RuntimeException("Identifiants invalides");
         }
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        log.debug("Validation mot de passe pour {}. Longueur reçu: {}, Longueur hash en base: {}", 
+                  email, rawPassword.length(), user.getPasswordHash().length());
+
+        if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
+            log.warn("Échec de la comparaison BCrypt pour l'utilisateur {}", email);
             auditService.log(user.getId(), "FAILED_LOGIN", clientIp, false,
-                    "Mot de passe invalide pour l'utilisateur: " + request.getEmail());
+                    "Mot de passe invalide pour l'utilisateur: " + email);
             throw new RuntimeException("Identifiants invalides");
         }
 
