@@ -250,9 +250,10 @@ deploy:production:
         sleep 10
         echo "== Requesting REAL Let's Encrypt Certificate =="
         docker compose -f docker-compose.prod.yml exec -T certbot certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $NOTIFICATION_FROM_EMAIL --rsa-key-size 4096 --agree-tos --force-renewal --non-interactive
-        echo "== Reloading Nginx with new certificate =="
-        docker compose -f docker-compose.prod.yml exec -T nginx-gateway nginx -s reload
       fi
+
+      echo "== Reloading Nginx configuration =="
+      docker compose -f docker-compose.prod.yml exec -T nginx-gateway nginx -s reload || true
 
       docker logout registry.gitlab.com
       echo "== Cleanup old images =="
