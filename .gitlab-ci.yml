@@ -135,7 +135,7 @@ deploy:production:
     name: production
     url: https://${PRODUCTION_DOMAIN}
   before_script:
-    - apk add --no-cache openssh-client bash curl
+    - apk add --no-cache openssh-client bash curl openssl
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
     - echo "$PRODUCTION_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
@@ -145,143 +145,49 @@ deploy:production:
     - ssh-keyscan -H $PRODUCTION_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - |
-      # === ÉTAPE 0: Vérification des variables critiques ===
-      if [ -z "${DB_USERNAME}" ] || [ -z "${DB_PASSWORD}" ]; then
-        echo "ERROR: DB_USERNAME or DB_PASSWORD is not set in GitLab Variables!"
-        echo "Please go to Settings > CI/CD > Variables and add them."
-        exit 1
-      fi
-      if [ -z "${RABBITMQ_USERNAME}" ] || [ -z "${RABBITMQ_PASSWORD}" ]; then
-        echo "ERROR: RABBITMQ_USERNAME or RABBITMQ_PASSWORD is not set in GitLab Variables!"
-        echo "Please go to Settings > CI/CD > Variables and add them (and uncheck 'Protect variable')."
-        exit 1
-      fi
+      # 1. Construction du .env
+      echo "JWT_SECRET=${JWT_SECRET}" > .env
+      echo "DB_USERNAME=${DB_USERNAME}" >> .env
+      echo "DB_PASSWORD=${DB_PASSWORD}" >> .env
+      echo "RABBITMQ_USERNAME=${RABBITMQ_USERNAME}" >> .env
+      echo "RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}" >> .env
+      echo "SMTP_USERNAME=${SMTP_USERNAME}" >> .env
+      echo "SMTP_PASSWORD=${SMTP_PASSWORD}" >> .env
+      echo "BREVO_API_KEY=${BREVO_API_KEY}" >> .env
+      echo "NOTIFICATION_FROM_EMAIL=${NOTIFICATION_FROM_EMAIL}" >> .env
+      echo "DOCKER_REGISTRY=${CI_REGISTRY_IMAGE}" >> .env
+      echo "IMAGE_TAG=${IMAGE_TAG}" >> .env
+      echo "DOMAIN=${PRODUCTION_DOMAIN}" >> .env
+      echo "GRAFANA_PASSWORD=${GRAFANA_PASSWORD}" >> .env
 
-      # === ÉTAPE 1: Construction du .env dans GitLab CI ===
-      echo "Building .env from GitLab CI variables..."
-      printf 'JWT_SECRET="%s"\n' "${JWT_SECRET}" > .env
-      printf 'DB_USERNAME=%s\n' "${DB_USERNAME}" >> .env
-      printf 'DB_PASSWORD="%s"\n' "${DB_PASSWORD}" >> .env
-      printf 'AUTH_DB_NAME=auth_db\n' >> .env
-      printf 'ACCOUNT_DB_NAME=account_db\n' >> .env
-      printf 'TRANSACTION_DB_NAME=transaction_db\n' >> .env
-      printf 'RABBITMQ_HOST=rabbitmq\n' >> .env
-      printf 'RABBITMQ_PORT=5672\n' >> .env
-      printf 'RABBITMQ_USERNAME=%s\n' "${RABBITMQ_USERNAME}" >> .env
-      printf 'RABBITMQ_PASSWORD="%s"\n' "${RABBITMQ_PASSWORD}" >> .env
-      printf 'SMTP_HOST=%s\n' "${SMTP_HOST:-smtp-relay.brevo.com}" >> .env
-      printf 'SMTP_PORT=%s\n' "${SMTP_PORT:-587}" >> .env
-      printf 'SMTP_USERNAME="%s"\n' "${SMTP_USERNAME}" >> .env
-      printf 'SMTP_PASSWORD="%s"\n' "${SMTP_PASSWORD}" >> .env
-      printf 'NOTIFICATION_FROM_EMAIL="%s"\n' "${NOTIFICATION_FROM_EMAIL}" >> .env
-      printf 'BREVO_API_KEY="%s"\n' "${BREVO_API_KEY}" >> .env
-      printf 'AUTH_SERVICE_URL=http://auth-service:8081\n' >> .env
-      printf 'ACCOUNT_SERVICE_URL=http://account-service:8082\n' >> .env
-      printf 'TRANSACTION_SERVICE_URL=http://transaction-service:8083\n' >> .env
-      printf 'DOCKER_REGISTRY=%s\n' "${CI_REGISTRY_IMAGE}" >> .env
-      printf 'IMAGE_TAG=%s\n' "${IMAGE_TAG}" >> .env
-      printf 'DOMAIN=%s\n' "${PRODUCTION_DOMAIN}" >> .env
-      printf 'SESSION_SECURE=true\n' >> .env
-      printf 'ENVIRONMENT=production\n' >> .env
-      printf 'GRAFANA_USER=%s\n' "${GRAFANA_USER:-admin}" >> .env
-      printf 'GRAFANA_PASSWORD="%s"\n' "${GRAFANA_PASSWORD}" >> .env
-      printf 'LOG_LEVEL=WARN\n' >> .env
-      echo ".env file built successfully."
-
-      # === ÉTAPE 2b: Ajout des credentials registry dans .env ===
-      printf 'CI_DEPLOY_TOKEN_USERNAME=%s\n' "${CI_REGISTRY_USER}" >> .env
-      printf 'CI_DEPLOY_TOKEN_PASSWORD="%s"\n' "${CI_REGISTRY_PASSWORD}" >> .env
-      printf 'CI_REGISTRY_IMAGE=%s\n' "${CI_REGISTRY_IMAGE}" >> .env
-
-      # === ÉTAPE 2c: Génération du script de déploiement ===
-      echo "Generating deploy script..."
-      cat > deploy.sh << 'DEPLOY_SCRIPT'
+      # 2. Préparation du script de déploiement VPS
+      cat > vps_deploy.sh << 'EOF'
       #!/bin/bash
-      set -a
+      set -e
       source .env
-      set +a
-
-      echo "== Current Configuration (Masked) =="
-      echo "User: $DB_USERNAME"
-      echo "Domain: $DOMAIN"
-      echo "Registry: $CI_REGISTRY_IMAGE"
-      echo "Image Tag: $IMAGE_TAG"
-
-      echo "== Configuring Nginx Domain =="
       sed -i "s/DOMAIN/$DOMAIN/g" Docker/nginx-prod.conf
-
-      echo "== Cleaning up legacy Nginx configs =="
-      # Supprimer tous les fichiers .conf dans Docker/ SAUF nginx-prod.conf
-      find Docker/ -maxdepth 1 -name "*.conf" ! -name "nginx-prod.conf" -delete
-
-      echo "== Checking SSL Certificates =="
+      find Docker/ -maxdepth 1 -name "*.conf" ! -name "nginx-prod.conf" -delete || true
       if [ ! -f "./certbot/conf/live/$DOMAIN/fullchain.pem" ]; then
-        echo "Creating temporary dummy certificate to start Nginx..."
+        echo "🛡️ Generating dummy certificate..."
         mkdir -p "./certbot/conf/live/$DOMAIN"
-        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
-          -keyout "./certbot/conf/live/$DOMAIN/privkey.pem" \
-          -out "./certbot/conf/live/$DOMAIN/fullchain.pem" \
-          -subj "/CN=$DOMAIN"
-        NEEDS_REAL_CERT="true"
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 -keyout "./certbot/conf/live/$DOMAIN/privkey.pem" -out "./certbot/conf/live/$DOMAIN/fullchain.pem" -subj "/CN=$DOMAIN"
+        NEEDS_CERT=true
       fi
-
-      echo "== Authenticating to GitLab Container Registry =="
-      echo "$CI_DEPLOY_TOKEN_PASSWORD" | docker login registry.gitlab.com \
-        -u "$CI_DEPLOY_TOKEN_USERNAME" --password-stdin
-
-      echo "== Pulling latest images =="
-      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml pull
-
-      echo "== Starting services =="
-      DOCKER_REGISTRY="$CI_REGISTRY_IMAGE" docker compose -f docker-compose.prod.yml up -d || {
-        echo "=========================================="
-        echo "DEPLOYMENT FAILED - Analyzing containers"
-        echo "=========================================="
-        docker compose -f docker-compose.prod.yml ps
-        echo ""
-        echo "Capturing logs for unhealthy services..."
-        # On récupère les noms des services qui ne sont pas "Up" ou "healthy"
-        services=$(docker compose -f docker-compose.prod.yml ps --format "{{.Service}}" | xargs)
-        for service in $services; do
-          echo "--- Logs for $service ---"
-          docker compose -f docker-compose.prod.yml logs --tail 50 "$service"
-        done
-        exit 1
-      }
-
-      if [ "$NEEDS_REAL_CERT" = "true" ]; then
-        echo "== Waiting for Nginx to initialize =="
-        sleep 10
-        echo "== Requesting REAL Let's Encrypt Certificate =="
-        docker compose -f docker-compose.prod.yml exec -T certbot certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $NOTIFICATION_FROM_EMAIL --rsa-key-size 4096 --agree-tos --force-renewal --non-interactive
+      echo $CI_JOB_TOKEN | docker login $CI_REGISTRY -u gitlab-ci-token --password-stdin
+      docker compose -f docker-compose.prod.yml pull
+      docker compose -f docker-compose.prod.yml up -d --remove-orphans
+      if [ "$NEEDS_CERT" = "true" ]; then
+        sleep 5
+        docker compose -f docker-compose.prod.yml run --rm certbot certonly --webroot -w /var/www/certbot -d $DOMAIN --email $NOTIFICATION_FROM_EMAIL --agree-tos --no-eff-email --force-renewal --non-interactive
+        docker compose -f docker-compose.prod.yml restart nginx
       fi
-
-      echo "== Reloading Nginx configuration =="
-      docker compose -f docker-compose.prod.yml exec -T nginx-gateway nginx -s reload || true
-
-      echo "== DIAGNOSTIC : STATUS DES CONTENEURS =="
+      echo " Deployment Successful!"
       docker compose -f docker-compose.prod.yml ps
-      echo "== DIAGNOSTIC : LOGS NGINX =="
-      docker logs --tail 50 nginx-gateway || true
+      EOF
 
-      docker logout registry.gitlab.com
-      echo "== Cleanup old images =="
-      docker image prune -f
-      echo "Deployment complete at $(date)!"
-      DEPLOY_SCRIPT
-      chmod +x deploy.sh
-
-      # === ÉTAPE 3: Transfert des fichiers vers le VPS ===
-      echo "Transferring files to VPS..."
-      scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -r \
-        .env deploy.sh docker-compose.prod.yml Docker Scripts Nginx \
-        ${PRODUCTION_USER}@${PRODUCTION_HOST}:${PRODUCTION_DEPLOY_PATH}/
-
-      # === ÉTAPE 4: Exécution du script de déploiement sur le VPS ===
-      echo "Launching deployment via SSH..."
-      ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
-        ${PRODUCTION_USER}@${PRODUCTION_HOST} \
-        "cd ${PRODUCTION_DEPLOY_PATH} && chmod +x Scripts/*.sh && bash deploy.sh"
+      # 3. Transfert et exécution
+      scp -o StrictHostKeyChecking=no .env vps_deploy.sh docker-compose.prod.yml Docker Scripts ${PRODUCTION_USER}@${PRODUCTION_HOST}:${PRODUCTION_DEPLOY_PATH}/
+      ssh -o StrictHostKeyChecking=no ${PRODUCTION_USER}@${PRODUCTION_HOST} "cd ${PRODUCTION_DEPLOY_PATH} && bash vps_deploy.sh"
   needs:
     - build:auth-service
     - build:account-service
