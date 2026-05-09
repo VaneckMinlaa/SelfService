@@ -2,13 +2,20 @@ const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
 
 function request(path, options = {}) {
   const url = `${baseUrl}${path}`;
+  const token = localStorage.getItem('token');
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   return fetch(url, {
     ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 }
 
@@ -19,12 +26,17 @@ export async function login(email, password) {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Échec de la connexion');
+    throw new Error(data.error || 'Identifiants incorrects');
   }
-  return res.json();
+  const data = await res.json();
+  if (data.token) {
+    localStorage.setItem('token', data.token);
+  }
+  return data;
 }
 
 export async function logout() {
+  localStorage.removeItem('token');
   await request('/api/auth/logout', { method: 'POST' });
 }
 
